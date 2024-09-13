@@ -79,7 +79,7 @@ bool ProcessGroupBKCL::BKCLTask::Wait(std::chrono::milliseconds timeout) {
 void ProcessGroupBKCL::BKCLTask::Synchronize() { Wait(kWaitTimeout); }
 
 void ProcessGroupBKCL::BKCLTask::StartDelayedCommFunc() {
-  VLOG(0) << "Start a delayed func";
+  VLOG(3) << "Start a delayed func";
   for (auto& fn : delayed_funcs_) {
     fn();
   }
@@ -92,7 +92,7 @@ void ProcessGroupBKCL::BKCLTask::RegisterDelayedCommFunc(const CommFunc& func) {
 }
 
 static bool IsCrossNodeComm(int src_rank, int tgt_rank) {
-  VLOG(0) << "src_rank: " << src_rank << "tgt_rank: " << tgt_rank;
+  VLOG(3) << "src_rank: " << src_rank << "tgt_rank: " << tgt_rank;
   return true;
 }
 
@@ -341,7 +341,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupBKCL::Point2Point(
   if (std::getenv("BKCL_ASYNC_SEND_RECV") != nullptr &&
       IsCrossNodeComm(rank_, p2p_target_rank) && comm_type == CommType::RECV) {
     // delay dispatch of comm kernels
-    VLOG(0) << "In async send /recv mode, delay recv from " << peer << ".";
+    VLOG(3) << "In async send /recv mode, delay recv from " << peer << ".";
     task->RegisterDelayedCommFunc(
         [=] { fn(bkcl_comm_ctx, bkcl_stream, p2p_target_rank); });
   } else {
