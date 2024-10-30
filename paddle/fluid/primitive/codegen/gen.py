@@ -55,7 +55,6 @@ BACKENDS_BLACK_LIST = [
     'add_n_grad',
     "allclose",
     "isclose",
-    "send_v2",
     "assert",
     "p_send",
     "embedding_sparse_grad",
