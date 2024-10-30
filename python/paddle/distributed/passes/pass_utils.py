@@ -962,7 +962,7 @@ def _pir_get_backward_op_type(all_ops, op_idx):
                 return True
         return False
 
-    # For the cur_op doesn't have output such as 'send_v2', it should be backward_b.
+    # For the cur_op doesn't have output such as 'p_send', it should be backward_b.
     if cur_op.num_results() == 0:
         return ["backward_b"]
 

@@ -396,7 +396,6 @@ class Inserter:
             idx,
             type=op_type,
             inputs={'x': [tensor]},
-            outputs={'out': [tensor]},
             attrs={
                 'ring_id': process_group.id,
                 'peer': process_group.ranks.index(src),
