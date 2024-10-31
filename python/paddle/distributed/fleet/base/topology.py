@@ -276,6 +276,40 @@ class HybridCommunicateGroup:
             if paddle.framework.core.is_compiled_with_nccl():
                 check_nccl_version_for_p2p()
             self._set_p2p_prev_next()
+            if (
+                paddle.is_compiled_with_xpu()
+                and os.getenv("BKCL_ASYNC_SEND_RECV") is not None
+            ):
+                tmp_send_tensor = paddle.zeros([1], dtype="int32")
+                prev_rank = self._get_p2p_prev_rank()
+                next_rank = self._get_p2p_next_rank()
+                if self.stage_id % 2 == 0:
+                    paddle.distributed.send(
+                        tmp_send_tensor, next_rank, self._pp_comm_group
+                    )
+                    paddle.distributed.recv(
+                        tmp_send_tensor, prev_rank, self._pp_comm_group
+                    )
+                    paddle.distributed.send(
+                        tmp_send_tensor, prev_rank, self._pp_comm_group
+                    )
+                    paddle.distributed.recv(
+                        tmp_send_tensor, next_rank, self._pp_comm_group
+                    )
+                else:
+                    paddle.distributed.recv(
+                        tmp_send_tensor, prev_rank, self._pp_comm_group
+                    )
+                    paddle.distributed.send(
+                        tmp_send_tensor, next_rank, self._pp_comm_group
+                    )
+                    paddle.distributed.recv(
+                        tmp_send_tensor, next_rank, self._pp_comm_group
+                    )
+                    paddle.distributed.send(
+                        tmp_send_tensor, prev_rank, self._pp_comm_group
+                    )
+
             if _use_four_directions:
                 self._set_four_directions_p2p_group()
 
