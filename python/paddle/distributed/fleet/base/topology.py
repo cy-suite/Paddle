@@ -20,6 +20,10 @@ from itertools import product
 from typing import TYPE_CHECKING, Any, Literal
 
 import paddle
+from paddle.distributed.utils.bkcl_utils import (
+    build_bkcl_async_p2p_conn,
+    check_bkcl_async_p2p_conn,
+)
 from paddle.distributed.utils.nccl_utils import check_nccl_version_for_p2p
 
 from ..utils.log_util import logger
@@ -280,35 +284,13 @@ class HybridCommunicateGroup:
                 paddle.is_compiled_with_xpu()
                 and os.getenv("BKCL_ASYNC_SEND_RECV") is not None
             ):
-                tmp_send_tensor = paddle.zeros([1], dtype="int32")
+                check_bkcl_async_p2p_conn(self._pp_group)
+                # NOTE(lijin23): For XPU async send/recv, the lazy init of connection would hang under the VPP schedule, so we pre init all p2p connection when init distributed env.
                 prev_rank = self._get_p2p_prev_rank()
                 next_rank = self._get_p2p_next_rank()
-                if self.stage_id % 2 == 0:
-                    paddle.distributed.send(
-                        tmp_send_tensor, next_rank, self._pp_comm_group
-                    )
-                    paddle.distributed.recv(
-                        tmp_send_tensor, prev_rank, self._pp_comm_group
-                    )
-                    paddle.distributed.send(
-                        tmp_send_tensor, prev_rank, self._pp_comm_group
-                    )
-                    paddle.distributed.recv(
-                        tmp_send_tensor, next_rank, self._pp_comm_group
-                    )
-                else:
-                    paddle.distributed.recv(
-                        tmp_send_tensor, prev_rank, self._pp_comm_group
-                    )
-                    paddle.distributed.send(
-                        tmp_send_tensor, next_rank, self._pp_comm_group
-                    )
-                    paddle.distributed.recv(
-                        tmp_send_tensor, next_rank, self._pp_comm_group
-                    )
-                    paddle.distributed.send(
-                        tmp_send_tensor, prev_rank, self._pp_comm_group
-                    )
+                build_bkcl_async_p2p_conn(
+                    self.stage_id, prev_rank, next_rank, self._pp_comm_group
+                )
 
             if _use_four_directions:
                 self._set_four_directions_p2p_group()
