@@ -620,7 +620,7 @@ class HybridParallelInferenceHelper:
                         attrs={
                             self._op_device_key: prev_dev,
                             self._op_role_key: op_role,
-                            'use_calc_stream': True,
+                            # 'use_calc_stream': True,
                             'peer': 1,
                             'ring_id': ring_id,
                         },
@@ -644,7 +644,7 @@ class HybridParallelInferenceHelper:
                             'dtype': var.dtype,
                             self._op_device_key: cur_dev,
                             self._op_role_key: op_role,
-                            'use_calc_stream': True,
+                            # 'use_calc_stream': True,
                             'peer': 0,
                             'ring_id': ring_id,
                         },
@@ -721,7 +721,7 @@ class HybridParallelInferenceHelper:
                             + ':'
                             + str(cur_id),
                             self._op_role_key: int(self._op_role.Forward),
-                            'use_calc_stream': True,
+                            # 'use_calc_stream': True,
                             'peer': 0,
                             'ring_id': ring_id,
                         },
@@ -746,7 +746,7 @@ class HybridParallelInferenceHelper:
                             + ':'
                             + str(prev_id),
                             self._op_role_key: int(self._op_role.Forward),
-                            'use_calc_stream': True,
+                            # 'use_calc_stream': True,
                             'peer': 1,
                             'ring_id': ring_id,
                         },

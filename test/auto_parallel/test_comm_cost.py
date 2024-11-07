@@ -94,6 +94,7 @@ class TestCommOpCost(unittest.TestCase):
         self.assertTrue(broadcast_op_cost.time > 0)
 
         # Check SendOpCost cost
+        # is old!
         send_op_desc = build_comm_desc(
             "send_v2", [0, 1], paddle.float32, [1, 32 * (10**6)]
         )

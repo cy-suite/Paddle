@@ -475,15 +475,15 @@ def _pir_overlap_send_recv(program):
     """
     for block in program.blocks:
         for op in block.ops:
-            if op.name() == "pd_op.send_v2":
+            if op.name() == "pd_op.p_send":
                 op.set_bool_attr("dynamic_shape", False)
-                op.set_bool_attr("use_calc_stream", True)
+                # op.set_bool_attr("use_calc_stream", True)
                 ring_id = op.attrs()["ring_id"]
                 op.set_execution_stream(f"send_stream_{ring_id}")
                 op.set_scheduling_priority(0)
-            elif op.name() == "pd_op.recv_v2":
+            elif op.name() == "pd_op.p_recv":
                 op.set_bool_attr("dynamic_shape", False)
-                op.set_bool_attr("use_calc_stream", True)
+                # op.set_bool_attr("use_calc_stream", True)
                 op.set_execution_stream("recv_stream")
                 op.set_scheduling_priority(0)
 
@@ -511,7 +511,7 @@ def _insert_sync_for_fthenb_1f1b(program, dist_context=None):
             # set send op on comm stream
             if op.type == 'send_v2':
                 # step1: set 'use_calc_stream' False
-                op._set_attr("use_calc_stream", False)
+                # op._set_attr("use_calc_stream", False)
                 op_role = op.attr('op_role')
                 ring_id = op.attr('ring_id')
                 # step2: insert 'c_sync_calc_stream' op before 'send_v2' op
@@ -611,13 +611,13 @@ def _overlap_send_recv(program):
         for op in block.ops:
             if op.type == 'send_v2':
                 op._set_attr("dynamic_shape", False)
-                op._set_attr("use_calc_stream", True)
+                # op._set_attr("use_calc_stream", True)
                 ring_id = op.attr("ring_id")
                 op.dist_attr.execution_stream = "send_stream_" + str(ring_id)
                 op.dist_attr.stream_priority = 0
             elif op.type == 'recv_v2':
                 op._set_attr("dynamic_shape", False)
-                op._set_attr("use_calc_stream", True)
+                # op._set_attr("use_calc_stream", True)
                 op.dist_attr.execution_stream = "recv_stream"
                 op.dist_attr.stream_priority = 0
             else:

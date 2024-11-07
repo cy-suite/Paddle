@@ -1167,22 +1167,22 @@ void PirInterpreter::RecordStreamForGC(InstructionBase* instr) {
 #if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
   if (instr->Name() == "pd_op.send_v2") {
     ::pir::Operation* op = instr->Operation();
-    if (op->HasAttribute("use_calc_stream") &&
-        op->attribute<::pir::BoolAttribute>("use_calc_stream").data() ==
-            false) {
-      int ring_id = op->attribute<::pir::Int32Attribute>("ring_id").data();
-      if (FLAGS_dynamic_static_unified_comm) {
-        const auto& comm_context_manager =
-            phi::distributed::CommContextManager::GetInstance();
-        stream = static_cast<phi::distributed::NCCLCommContext*>(
-                     comm_context_manager.Get(std::to_string(ring_id)))
-                     ->GetStream();
-      } else {
-        stream = platform::NCCLCommContext::Instance()
-                     .Get(ring_id, instr->DeviceContext().GetPlace())
-                     ->stream();
-      }
+    // if (op->HasAttribute("use_calc_stream") &&
+    //     op->attribute<::pir::BoolAttribute>("use_calc_stream").data() ==
+    //         false) {
+    int ring_id = op->attribute<::pir::Int32Attribute>("ring_id").data();
+    if (FLAGS_dynamic_static_unified_comm) {
+      const auto& comm_context_manager =
+          phi::distributed::CommContextManager::GetInstance();
+      stream = static_cast<phi::distributed::NCCLCommContext*>(
+                   comm_context_manager.Get(std::to_string(ring_id)))
+                   ->GetStream();
+    } else {
+      stream = platform::NCCLCommContext::Instance()
+                   .Get(ring_id, instr->DeviceContext().GetPlace())
+                   ->stream();
     }
+    // }
   }
 #endif
   auto TensorRecordStream = [&stream](phi::DenseTensor& tensor) {

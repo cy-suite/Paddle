@@ -65,7 +65,7 @@ def _recv_in_static_mode(
             'peer': src_rank_in_group,
             'out_shape': tensor.shape,
             'dtype': tensor.dtype,
-            'use_calc_stream': sync_op,
+            # 'use_calc_stream': sync_op,
         },
     )
 

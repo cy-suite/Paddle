@@ -377,7 +377,7 @@ class Inserter:
             attrs={
                 'ring_id': process_group.id,
                 'peer': process_group.ranks.index(dst),
-                'use_calc_stream': True,
+                # 'use_calc_stream': True,
                 'op_role': op_role,
                 'dynamic_shape': True,
             },
@@ -403,7 +403,7 @@ class Inserter:
                 'peer': process_group.ranks.index(src),
                 'out_shape': tensor.shape,
                 'dtype': tensor.dtype,
-                'use_calc_stream': True,
+                # 'use_calc_stream': True,
                 'op_role': op_role,
                 'dynamic_shape': True,
             },

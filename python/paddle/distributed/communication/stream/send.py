@@ -64,7 +64,7 @@ def _send_in_static_mode(
         attrs={
             'ring_id': ring_id,
             'peer': dst_rank_in_group,
-            'use_calc_stream': sync_op,
+            # 'use_calc_stream': sync_op,
         },
     )
 

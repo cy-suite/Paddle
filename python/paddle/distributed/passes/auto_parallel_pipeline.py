@@ -100,7 +100,7 @@ class PipelinePass(PassBase):
                 # set send op on comm stream
                 if op.type == 'send_v2':
                     # step1: set 'use_calc_stream' False
-                    op._set_attr("use_calc_stream", False)
+                    # op._set_attr("use_calc_stream", False)
                     op_role = op.attr('op_role')
                     # step2: insert 'c_sync_calc_stream' op before 'send_v2' op
                     var_name = op.input_arg_names[0]

@@ -805,7 +805,7 @@ class PipelineOptimizer:
                             attrs={
                                 self._op_device_key: prev_dev,
                                 self._op_role_key: op_role,
-                                'use_calc_stream': True,
+                                # 'use_calc_stream': True,
                                 'peer': 1,
                                 'ring_id': ring_id,
                             },
@@ -826,7 +826,7 @@ class PipelineOptimizer:
                                 'dtype': var.dtype,
                                 self._op_device_key: cur_dev,
                                 self._op_role_key: op_role,
-                                'use_calc_stream': True,
+                                # 'use_calc_stream': True,
                                 'peer': 0,
                                 'ring_id': ring_id,
                             },
@@ -889,25 +889,33 @@ class PipelineOptimizer:
                         is_param = (
                             True if isinstance(prefix_var, Parameter) else False
                         )
-                        block._insert_op_without_sync(
-                            index=index + extra_index_info['index'],
-                            type=(
-                                'send_v2'
-                                if not use_mp or is_param
-                                else 'partial_send'
-                            ),
-                            inputs={'X': var},
-                            attrs={
-                                self._op_device_key: prev_dev,
-                                self._op_role_key: op_role,
-                                'use_calc_stream': False,
-                                'ring_id': ring_id,
-                                'peer': 1,
-                                # if send_v2, num&id attr is not in op_attrs, will not insert
-                                'num': self.mp_degree,
-                                'id': self.mp_rank,
-                            },
-                        )
+                        if not use_mp or is_param:
+                            block._insert_op_without_sync(
+                                index=index + extra_index_info['index'],
+                                type='send_v2',
+                                inputs={'X': var},
+                                attrs={
+                                    self._op_device_key: prev_dev,
+                                    self._op_role_key: op_role,
+                                    'ring_id': ring_id,
+                                    'peer': 1,
+                                },
+                            )
+                        else:
+                            block._insert_op_without_sync(
+                                index=index + extra_index_info['index'],
+                                type='partial_send',
+                                inputs={'X': var},
+                                attrs={
+                                    self._op_device_key: prev_dev,
+                                    self._op_role_key: op_role,
+                                    'ring_id': ring_id,
+                                    'peer': 1,
+                                    'use_calc_stream': False,
+                                    'num': self.mp_degree,
+                                    'id': self.mp_rank,
+                                },
+                            )
                         extra_index_info['index'] += 1
                         insert_index = None
                         if int(op_role) == int(self._op_role.Backward):
@@ -932,27 +940,37 @@ class PipelineOptimizer:
                         if int(op_role) == int(self._op_role.Forward):
                             sync_comm_op._set_attr('pipeline_flag', '')
                             extra_index_info['index'] += 1
-                        block._insert_op_without_sync(
-                            index=index + extra_index_info['index'],
-                            type=(
-                                'recv_v2'
-                                if not use_mp or is_param
-                                else 'partial_recv'
-                            ),
-                            outputs={'Out': [var]},
-                            attrs={
-                                'out_shape': var_shape,
-                                'dtype': var.dtype,
-                                self._op_device_key: cur_dev,
-                                self._op_role_key: op_role,
-                                'use_calc_stream': True,
-                                'peer': 0,
-                                'ring_id': ring_id,
-                                # if recv_v2, num&id attr is not in op_attrs, will not insert
-                                'num': self.mp_degree,
-                                'id': self.mp_rank,
-                            },
-                        )
+                        if not use_mp or is_param:
+                            block._insert_op_without_sync(
+                                index=index + extra_index_info['index'],
+                                type='recv_v2',
+                                outputs={'Out': [var]},
+                                attrs={
+                                    'out_shape': var_shape,
+                                    'dtype': var.dtype,
+                                    self._op_device_key: cur_dev,
+                                    self._op_role_key: op_role,
+                                    'peer': 0,
+                                    'ring_id': ring_id,
+                                },
+                            )
+                        else:
+                            block._insert_op_without_sync(
+                                index=index + extra_index_info['index'],
+                                type='partial_recv',
+                                outputs={'Out': [var]},
+                                attrs={
+                                    'out_shape': var_shape,
+                                    'dtype': var.dtype,
+                                    self._op_device_key: cur_dev,
+                                    self._op_role_key: op_role,
+                                    'peer': 0,
+                                    'ring_id': ring_id,
+                                    'use_calc_stream': True,
+                                    'num': self.mp_degree,
+                                    'id': self.mp_rank,
+                                },
+                            )
                         extra_index_info['index'] += 1
                         if use_mp and not is_param:
                             block._insert_op_without_sync(
@@ -965,7 +983,6 @@ class PipelineOptimizer:
                                     self._op_role_key: op_role,
                                     'use_calc_stream': True,
                                     'ring_id': 0,
-                                    # if recv_v2, num&id attr is not in op_attrs, will not insert
                                     'nranks': self.mp_degree,
                                     'rank': self.mp_rank,
                                 },
@@ -1613,7 +1630,7 @@ class PipelineOptimizer:
                     },
                     attrs={
                         self._op_device_key: write_device,
-                        'use_calc_stream': False,
+                        # 'use_calc_stream': False,
                         # A trick to make the role LRSched to avoid copy every
                         # microbatch
                         self._op_role_key: self._op_role.LRSched,
@@ -1629,7 +1646,7 @@ class PipelineOptimizer:
                         'out_shape': read_block.var(var_name).shape,
                         'dtype': read_block.var(var_name).dtype,
                         self._op_device_key: read_device,
-                        'use_calc_stream': False,
+                        # 'use_calc_stream': False,
                         # A trick to make the role LRSched to avoid copy every
                         # microbatch
                         self._op_role_key: self._op_role.LRSched,

@@ -92,7 +92,7 @@ DDim recv_shape_info(const Context& dev_ctx,
   }
   DDim new_dim;
   new_dim = new_dim.reshape(all_shape);
-  VLOG(3) << "recv the shape: (" << new_dim << ") from peer";
+  VLOG(0) << "recv the shape: (" << new_dim << ") from peer";
 
   return new_dim;
 }
@@ -128,6 +128,7 @@ template <typename T, typename Context>
 void PRecvKernel(const Context& dev_ctx,
                  int peer,
                  DataType dtype,
+                 const std::vector<int>& out_shape,
                  bool dynamic_shape,
                  DenseTensor* out) {
 #if defined(PADDLE_WITH_NCCL) || \

@@ -43,7 +43,7 @@ class TestCollectiveSendRecvDynamicShape(TestCollectiveRunnerBase):
                     attrs={
                         'ring_id': ring_id,
                         'peer': 1,
-                        'use_calc_stream': True,
+                        # 'use_calc_stream': True,
                         'dynamic_shape': True,
                     },
                 )
@@ -56,7 +56,7 @@ class TestCollectiveSendRecvDynamicShape(TestCollectiveRunnerBase):
                         'ring_id': ring_id,
                         'dtype': tindata.dtype,
                         'out_shape': tindata.shape,
-                        'use_calc_stream': True,
+                        # 'use_calc_stream': True,
                         'dynamic_shape': True,
                     },
                 )

@@ -54,7 +54,7 @@ class TestCollectiveSendRecv(TestCollectiveRunnerBase):
                     attrs={
                         'ring_id': ring_id,
                         'peer': 1,
-                        'use_calc_stream': True,
+                        # 'use_calc_stream': True,
                     },
                 )
             else:
@@ -66,7 +66,7 @@ class TestCollectiveSendRecv(TestCollectiveRunnerBase):
                         'ring_id': ring_id,
                         'dtype': data1.dtype,
                         'out_shape': [1, 3],
-                        'use_calc_stream': True,
+                        # 'use_calc_stream': True,
                     },
                 )
             return tensor_array
