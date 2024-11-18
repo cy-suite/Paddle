@@ -238,10 +238,16 @@ bool IsNoNeedBuffer(pir::Operation* op, pir::Value value) {
 
 // NOTE(zhangbo): pd_op.feed's output and pd_op.fetch's input can not be eager
 // deleted.
-std::unordered_set<pir::Value> GetSkipDeletionValues(const pir::Block& block) {
+std::unordered_set<pir::Value> GetSkipDeletionValues(
+    const pir::Block& block,
+    const std::set<std::string>& no_need_buffer_values) {
   std::unordered_set<pir::Value> skip_dels;
   for (auto& op : block) {
-    if (op.name() == "builtin.shadow_output") {
+    if (op.name() == "builtin.shadow_output" &&
+        no_need_buffer_values.count(op.attributes()
+                                        .at("output_name")
+                                        .dyn_cast<pir::StrAttribute>()
+                                        .AsString()) == 0) {
       skip_dels.insert(op.operand_source(0));
       continue;
     }
@@ -293,12 +299,14 @@ void GetEagerDelValueOfOp(
 
     for (size_t i = 0; i < op.num_operands(); ++i) {
       auto input = op.operand_source(i);
-      if (skip_dels.count(input) > 0 || !input || !CanBeDeleted(input)) {
+      if (skip_dels.count(input) > 0 || !input || !CanBeDeleted(input) ||
+          IsNoNeedBuffer(&op, input)) {
         VLOG(6) << "The " << i << "-th input value of the Operation("
                 << upper_op_name << ") can not be deleted.";
         VLOG(8) << " -- skip dels: " << skip_dels.count(input);
         VLOG(8) << " -- value is null: " << !input;
         VLOG(8) << " -- can be deleted: " << !CanBeDeleted(input);
+        VLOG(8) << " -- is no_need_buffer: " << IsNoNeedBuffer(&op, input);
         continue;
       }
       (*del_value_2_op)[input] = &op;
@@ -323,8 +331,10 @@ void GetEagerDelValueOfOp(
 }
 
 std::unordered_map<pir::Operation*, std::unordered_set<pir::Value>>
-GetEagerDeletionValues(const pir::Block& block) {
-  std::unordered_set<pir::Value> skip_dels = GetSkipDeletionValues(block);
+GetEagerDeletionValues(const pir::Block& block,
+                       const std::set<std::string>& no_need_buffer_values) {
+  std::unordered_set<pir::Value> skip_dels =
+      GetSkipDeletionValues(block, no_need_buffer_values);
   std::unordered_map<pir::Value, pir::Operation*> del_value_2_op;
   GetEagerDelValueOfOp(block, skip_dels, &del_value_2_op);
   std::unordered_map<pir::Operation*, std::unordered_set<pir::Value>>
@@ -336,8 +346,9 @@ GetEagerDeletionValues(const pir::Block& block) {
 }
 
 std::unordered_map<pir::Operation*, std::string> GetInplaceOps(
-    const pir::Block& block) {
-  const auto eager_dels = GetEagerDeletionValues(block);
+    const pir::Block& block,
+    const std::set<std::string>& no_need_buffer_values) {
+  const auto eager_dels = GetEagerDeletionValues(block, no_need_buffer_values);
   auto use_count_map = [](const pir::Block& block) {
     std::unordered_map<pir::Value, size_t> use_count_map;
     for (auto& op : block) {
@@ -525,12 +536,17 @@ class InplacePass : public pir::Pass {
  public:
   InplacePass() : pir::Pass("inplace_pass", 3) {}
 
+  explicit InplacePass(const std::set<std::string>& no_need_buffer_values)
+      : pir::Pass("inplace_pass", 3) {
+    no_need_buffer_values_ = no_need_buffer_values;
+  }
+
   void Run(pir::Operation* op) override {
     int64_t num_rewrites_{0};
     for (size_t i = 0; i < op->num_regions(); ++i) {
       auto& region = op->region(i);
       for (auto& block : region) {
-        auto inplace_ops = GetInplaceOps(block);
+        auto inplace_ops = GetInplaceOps(block, no_need_buffer_values_);
 
         for (const auto& kv : inplace_ops) {
           VLOG(6) << "Do inplace for: "
@@ -558,12 +574,16 @@ class InplacePass : public pir::Pass {
     }
     AddStatistics(num_rewrites_);
   }
+
+ private:
+  std::set<std::string> no_need_buffer_values_;
 };
 
 namespace pir {
 
-std::unique_ptr<pir::Pass> CreateInplacePass() {
-  return std::make_unique<InplacePass>();
+std::unique_ptr<pir::Pass> CreateInplacePass(
+    const std::set<std::string>& no_need_buffer_values) {
+  return std::make_unique<InplacePass>(no_need_buffer_values);
 }
 
 }  // namespace pir

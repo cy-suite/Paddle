@@ -58,6 +58,11 @@ StandaloneExecutor::StandaloneExecutor(const phi::Place& place,
   VLOG(6) << ss.str();
 
   const auto& jobs = plan_.JobList();
+  std::unordered_map<std::string, std::set<std::string>>
+      program_no_need_buffer_value_names =
+          (FLAGS_enable_pir_api)
+              ? interpreter::GetNoNeedBufferValues(plan_.TypeToIrPorgram())
+              : std::unordered_map<std::string, std::set<std::string>>{};
   for (size_t job_idx = 0; job_idx < jobs.size(); ++job_idx) {
     const auto& job = jobs[job_idx];
     const std::string& job_type = job->Type();
@@ -118,7 +123,11 @@ StandaloneExecutor::StandaloneExecutor(const phi::Place& place,
 
       if (FLAGS_pir_apply_inplace_pass) {
         pir::PassManager pm(pir::IrContext::Instance(), 3);
-        pm.AddPass(pir::CreateInplacePass());
+        std::set<std::string> no_need_buffer_value_names =
+            (program_no_need_buffer_value_names.count(job_type) > 0)
+                ? program_no_need_buffer_value_names.at(job_type)
+                : std::set<std::string>{};
+        pm.AddPass(pir::CreateInplacePass(no_need_buffer_value_names));
         pm.Run(shared_program.get());
       }
 

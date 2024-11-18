@@ -45,6 +45,9 @@ class Plan final {
   const std::shared_ptr<ProgramDesc> Program(const std::string& job_type) const;
   std::shared_ptr<::pir::Program> IrProgram(const std::string& job_type) const;
 
+  const std::unordered_map<std::string, std::shared_ptr<::pir::Program>>&
+  TypeToIrPorgram() const;
+
   void SetIrProgram(const std::string& job_type,
                     std::shared_ptr<::pir::Program> ir_prog);
 
