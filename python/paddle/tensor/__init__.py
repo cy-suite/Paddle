@@ -73,6 +73,7 @@ from .linalg import (  # noqa: F401
     corrcoef,
     cov,
     cross,
+    det,
     dist,
     dot,
     eig,
@@ -87,7 +88,9 @@ from .linalg import (  # noqa: F401
     lu,
     lu_unpack,
     matmul,
+    matrix_exp,
     matrix_power,
+    matrix_rank,
     multi_dot,
     mv,
     norm,
@@ -95,6 +98,7 @@ from .linalg import (  # noqa: F401
     pca_lowrank,
     pinv,
     qr,
+    slogdet,
     solve,
     svd,
     svd_lowrank,
@@ -102,6 +106,7 @@ from .linalg import (  # noqa: F401
     t_,
     transpose,
     transpose_,
+    triangular_solve,
 )
 from .logic import (  # noqa: F401
     __rand__,
