@@ -36,11 +36,13 @@ class ComputeInlineTactic final : public ScheduleTactic {
  private:
   std::unordered_set<std::string> output_names_;
   cinn::common::Target target_;
+  bool enable_vectorize_{false};
 };
 
 void ComputeInlineTactic::Init(ScheduleContext* context) {
   output_names_ = context->output_names;
   target_ = context->target;
+  enable_vectorize_ = context->config.base_info->enable_vectorize;
 }
 
 void ComputeInlineTactic::Apply(ir::IRSchedule* sch,
@@ -50,6 +52,8 @@ void ComputeInlineTactic::Apply(ir::IRSchedule* sch,
   // if (IsProhibitScheduleExternCallBlock(node->Block())) {
   //    return;
   // }
+  // compute inline tactic not work, when apply vectorize in current schedule
+  if (enable_vectorize_) return;
   auto_schedule::AutoInline inliner(target_, output_names_);
   VLOG(6) << "try ComputeInline on: " << block_id
           << ", before ComputeInline, func body: "

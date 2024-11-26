@@ -62,9 +62,9 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
 
   ReplaceConstParamToInteger(&copied->body);
   // Simplify already contains CastSimplify
-  Simplify(&copied->body);
-  EliminateInvariantLoop(&copied->body);
-  VLOG(4) << "After Optimize EliminateInvariantLoop:" << copied;
+  // Simplify(&copied->body);
+  // EliminateInvariantLoop(&copied->body);
+  // VLOG(4) << "After Optimize EliminateInvariantLoop:" << copied;
   ReplaceCrossThreadReduction(copied);
   VLOG(4) << "After Optimize ReplaceCrossThreadReduction:" << copied;
   ReplaceCrossBlockReduction(copied);
