@@ -24,6 +24,7 @@ namespace cinn {
 namespace ir {
 
 using cinn::ir::analyzer::IsReductionSBlock;
+using BoundVariableMap = std::unordered_map<std::string, std::vector<Var>>;
 
 bool IsSpatialRegion(const ScheduleConfig& config) {
   if (config.base_info->iter_space_type.size() == 1 &&
@@ -44,8 +45,6 @@ bool UseContinuousDataTile(const ScheduleConfig& config) {
   }
   return false;
 }
-
-using BoundVariableMap = std::unordered_map<std::string, std::vector<Var>>;
 
 /*
  * Check if the current loop variable containing the vectorize axis
@@ -147,8 +146,6 @@ bool ScheduleBlockEnableVectorize(const ScheduleConfig& config,
 
   if (!UseContinuousDataTile(config)) return false;
 
-  // TODO(ZhangX): check tensor indexs contains vectorize axis
-
   return true;
 }
 
@@ -245,7 +242,8 @@ void TileFirstGeneralTactic::Apply(ir::IRSchedule* sch,
   if (ir::IsReduceInitTensorName(block_id)) return;
 
   // loops tiling with vectorize
-  if (ScheduleBlockEnableVectorize(context_->config, block_id)) {
+  if (!IsReductionSBlock(sch->GetBlock(block_id)) &&
+      ScheduleBlockEnableVectorize(context_->config, block_id)) {
     ApplyVectorize(sch, block_id);
     return;
   }
@@ -687,42 +685,40 @@ void TileFirstGeneralTactic::ApplyVectorize(ir::IRSchedule* sch,
 
     loops = sch->GetLoops(block_id);
     DoBind(loops);
-    return;
-  }
+  } else {  // Reduce situation
+    // only deal with spatial block and don't support blockIdx.y
+    if (!IsReductionSBlock(sch->GetBlock(block_id))) {
+      auto loops = sch->GetLoops(block_id);
+      // The iter_value bound by axis_bind must contain the loop_var of the axis
+      // to be vectorized.
+      if (ContainsVectorizableAxis(sch, loops.size() - 1, block_id)) {
+        sch->Split(loops[1], std::vector<int>{-1, rd_thread, vectorize_factor});
 
-  // Reduce situation
-  // only deal with spatial block and don't support blockIdx.y
-  if (!IsReductionSBlock(sch->GetBlock(block_id))) {
-    auto loops = sch->GetLoops(block_id);
-    // The iter_value bound by axis_bind must contain the loop_var of the axis
-    // to be vectorized.
-    if (ContainsVectorizableAxis(sch, loops.size() - 1, block_id)) {
-      sch->Split(loops[1], std::vector<int>{-1, rd_thread, vectorize_factor});
-
-      // set vectorize schedule primitives
-      loops = sch->GetLoops(block_id);
-      auto vectorize_axis = loops.size() - 1;
-      sch->Vectorize(loops[vectorize_axis], vectorize_factor);
-      const auto DoBind = [&](const std::vector<ir::Expr>& loops) {
-        sch->Bind(loops[0], "blockIdx.x");
-        auto threadsIdx_x_axis = vectorize_axis - 1;
-        sch->Bind(loops[threadsIdx_x_axis], "threadIdx.x");
-      };
-      loops = sch->GetLoops(block_id);
-      DoBind(loops);
-      return;
-    } else {
-      sch->Split(loops[1], std::vector<int>{-1, rd_thread});
-      const auto DoBind = [&](const std::vector<ir::Expr>& loops) {
-        sch->Bind(loops[0], "blockIdx.x");
-        auto threadsIdx_x_axis = loops.size() - 1;
-        sch->Bind(loops[threadsIdx_x_axis], "threadIdx.x");
-      };
-      loops = sch->GetLoops(block_id);
-      DoBind(loops);
-      return;
+        // set vectorize schedule primitives
+        loops = sch->GetLoops(block_id);
+        auto vectorize_axis = loops.size() - 1;
+        sch->Vectorize(loops[vectorize_axis], vectorize_factor);
+        const auto DoBind = [&](const std::vector<ir::Expr>& loops) {
+          sch->Bind(loops[0], "blockIdx.x");
+          auto threadsIdx_x_axis = vectorize_axis - 1;
+          sch->Bind(loops[threadsIdx_x_axis], "threadIdx.x");
+        };
+        DoBind(loops);
+      } else {
+        sch->Split(loops[1], std::vector<int>{-1, rd_thread});
+        const auto DoBind = [&](const std::vector<ir::Expr>& loops) {
+          sch->Bind(loops[0], "blockIdx.x");
+          auto threadsIdx_x_axis = loops.size() - 1;
+          sch->Bind(loops[threadsIdx_x_axis], "threadIdx.x");
+        };
+        loops = sch->GetLoops(block_id);
+        DoBind(loops);
+      }
     }
   }
+
+  VariableTypeAssignment(sch, block_id);
+  SetReduceType(sch, block_id);
   return;
 }
 
