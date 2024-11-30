@@ -57,8 +57,23 @@ amp_ops = ["pd_op.check_finite_and_unscale_", "pd_op.update_loss_scaling_"]
 
 def reshard_single_value(program, op, operand, attr):
     prev_var = operand.source()
+
     if prev_var.is_dist() and prev_var.dist_attr() != attr:
         operand_attr = attr.as_tensor_dist_attr()
+        if prev_var.get_defining_op().name() == "dist_op.dist_reshape":
+            # NOTE(pkuzyc): 'dist_reshape' will set the placements attribute
+            # of its output tensor, and the other ops not. In this case, their
+            # 'prev_var.dist_attr() != attr' is always true, but the operand
+            # should not be resharded if its placements attribute is equal to
+            # op's operand placements (op's operand placements is converted
+            # from dims mapping).
+            # TODO(pkuzyc): remove this part after
+            var_attr = prev_var.dist_attr()
+            if (
+                var_attr.process_mesh == operand_attr.process_mesh
+                and var_attr.placements_attr == operand_attr.placements
+            ):
+                return prev_var
         paddle.pir.set_insertion_point(op)
         with pir_op_role_guard(op.op_role):
             # fold reshard

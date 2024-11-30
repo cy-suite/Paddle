@@ -300,6 +300,20 @@ def _dist_reshape(
         )
 
 
+def _replace_dist_reshape_pass(dist_program):
+    for op in dist_program.global_block().ops:
+        if op.name() == "dist_op.dist_reshape":
+            paddle.pir.set_insertion_point(op)
+            in_var = op.operand_source(0)
+            out = paddle._C_ops.reshape(in_var, op.result(0).shape)
+            reshape_op = out.get_defining_op()
+            dist_type = op.result(0).type().as_dist_type()
+            out.set_type(dist_type.local_type())
+            op.result(0).replace_all_uses_with(out)
+            assert op.result(0).use_empty() is True
+            op.erase()
+
+
 def _reshard_mesh_shape(
     dist_tensor: Tensor, mesh: ProcessMesh, placements: list[Placement]
 ):
