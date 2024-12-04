@@ -14,14 +14,16 @@
 
 #include "paddle/cinn/optim/vectorize_for_trans.h"
 
-#include <unordered_set>
+#include <unordered_map>
 #include "paddle/cinn/common/ir_util.h"
 #include "paddle/cinn/ir/ir.h"
 #include "paddle/cinn/ir/ir_base.h"
 #include "paddle/cinn/ir/ir_mutator.h"
 #include "paddle/cinn/ir/ir_printer.h"
 #include "paddle/cinn/ir/utils/ir_copy.h"
+#include "paddle/cinn/ir/utils/ir_nodes_collector.h"
 #include "paddle/cinn/ir/utils/ir_replace.h"
+#include "paddle/cinn/optim/ir_simplify.h"
 #include "paddle/cinn/optim/unroll_loops.h"
 
 namespace cinn {
@@ -29,7 +31,7 @@ namespace optim {
 
 namespace {
 
-std::unordered_set<std::string> CollectIndexSymbols(Expr *x) {
+std::unordered_map<std::string, ir::Var> CollectExprSymbols(Expr *x) {
   struct Mutator : public ir::IRMutator<Expr *> {
     void operator()(ir::Expr *expr) { ir::IRMutator<>::Visit(expr, expr); }
     void Visit(const ir::_Var_ *op, Expr *expr) override {
@@ -37,13 +39,15 @@ std::unordered_set<std::string> CollectIndexSymbols(Expr *x) {
       PADDLE_ENFORCE_NOT_NULL(node,
                               ::common::errors::InvalidArgument(
                                   "Sorry, but the node expr is nullptr"));
-      symbols_.insert(op->name);
+      if (!symbols_.count(op->name)) {
+        symbols_.insert({op->name, ir::Var(node)});
+      }
     }
 
-    std::unordered_set<std::string> GetSymbols() { return symbols_; }
+    std::unordered_map<std::string, ir::Var> GetSymbols() { return symbols_; }
 
    private:
-    std::unordered_set<std::string> symbols_;
+    std::unordered_map<std::string, ir::Var> symbols_;
   };
 
   Mutator mutator;
@@ -59,7 +63,7 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
     if (in_vectorize_) {
       auto *node = expr->As<ir::Load>();
       auto *tensor = node->tensor.As<ir::_Tensor_>();
-      if (node->is_addr_tensor() && !IsScalarTensor(node->indices)) {
+      if (node->is_addr_tensor() && TensorCanVectorize(node, node->indices)) {
         TensorVectorized(node, &node->indices, false);
       }
     }
@@ -72,7 +76,7 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
         tensor,
         ::common::errors::InvalidArgument(
             "Expected _Tensor_ node in Store, but received nullptr."));
-    if (in_vectorize_ && !IsScalarTensor(node->indices)) {
+    if (in_vectorize_ && TensorCanVectorize(node, node->indices)) {
       TensorVectorized(node, &node->indices, true);
     }
     IRMutator::Visit(&node->value, &node->value);
@@ -153,11 +157,112 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
     return "";
   }
 
-  bool IsScalarTensor(const std::vector<ir::Expr> &indices) {
+  /**
+   * Check if tensor can vectorize.
+   * Situation 1 : Tensor is scalar, tensor can't vectorize
+   * eg 1 : Address access of tensor without vectorize axis.
+   *  serial for (i, 0, 4)
+   *    serial for (j, 0, 4)
+   *      vectorize[4] for (v1, 0, 4)
+   *        float a[i, j, v1] = float b[i, j, v1] + float c[i, j]
+   *
+   *  c[i, j] is a scalar tensor.
+   *
+   * eg 2 : Address access of tensor contains vectorize axis.
+   * but tensor is a scalar tensor in the vectorize loop.
+   *  serial for (i, 0, 4)
+   *  {
+   *    serial for (j, 0, 16)
+   *    {
+   *      vectorize[4] for (v1, 0, 4)
+   *      {
+   *        float a[i, j, v1] =  float b[(i * 64 + j * 4 + v1) / 4]
+   *      }
+   *    }
+   *  }
+   *
+   *  b[(i * 64 + j * 4 + v1) / 4] is a scalar tensor.
+   *
+   * Situation 2 : Tensor offset with vectorize axis is continuous
+   */
+  bool TensorCanVectorize(ir::LoadStoreAddrMnger *node,
+                          const std::vector<ir::Expr> &indices) {
+    // situation 1 : Tensor is scalar in vectorize var_loop
+    // eg 1 : Address access of tensor without vectorize axis.
+    bool with_vectorize_axis = false;
     for (auto var : indices) {
-      std::unordered_set<std::string> index_symbols = CollectIndexSymbols(&var);
-      if (index_symbols.count(loop_var_->name)) return false;
+      auto index_symbols = CollectExprSymbols(&var);
+      if (index_symbols.count(loop_var_->name)) {
+        with_vectorize_axis = true;
+        break;
+      }
     }
+    if (!with_vectorize_axis) return false;
+
+    // others situation
+    auto *tensor = node->tensor.As<ir::_Tensor_>();
+    Expr offset = indices[0];
+    for (int i = 1; i < tensor->shape.size(); ++i) {
+      Expr size = tensor->shape[i];
+      Expr index = indices[i];
+      offset = ir::Add::Make(ir::Mul::Make(offset, size), index);
+    }
+
+    // collect var expr in offset
+    auto var_symbols = CollectExprSymbols(&offset);
+
+    // update offset with blockIdx.x threadIdx.x and other not vectorize
+    // var_loop
+    for (const auto &[key, value] : var_symbols) {
+      if (key != loop_var_->name) {
+        offset = ir::ir_utils::IRCopy(offset);
+        cinn::ir::ir_utils::IrReplaceVarBroadcast(
+            &offset, Expr(value), Expr(int32_t(0)));
+      }
+    }
+
+    cinn::optim::Simplify(&offset);
+    var_symbols = CollectExprSymbols(&offset);
+    if (!var_symbols.count(loop_var_->name)) {
+      with_vectorize_axis = false;
+    }
+    if (!with_vectorize_axis) return false;
+
+    Expr origin_offset = ir::ir_utils::IRCopy(offset);
+    cinn::ir::ir_utils::IrReplaceVarBroadcast(
+        &origin_offset, Expr(loop_var_), Expr(int32_t(0)));
+    cinn::optim::Simplify(&origin_offset);
+    bool is_zero = true;
+    bool is_continous = true;
+    for (int i = 1; i < vectorize_size_; i++) {
+      Expr next = ir::ir_utils::IRCopy(offset);
+      cinn::ir::ir_utils::IrReplaceVarBroadcast(
+          &next, Expr(loop_var_), Expr(int32_t(i)));
+      cinn::optim::Simplify(&next);
+      auto compare = ir::Sub::Make(next, origin_offset);
+      cinn::optim::Simplify(&compare);
+      if (compare.type().is_int(32) && compare.as_int32() != 0) {
+        is_zero = false;
+      }
+
+      if (compare.type().is_int(32) && compare.as_int32() != i) {
+        is_continous = false;
+        break;
+      }
+    }
+
+    // check Tensor is Scalar Tensor
+    if (is_zero) return false;
+
+    // check Tensor is continuous at vectorize axis loop
+    if (!is_continous) {
+      in_vectorize_ = false;
+      update_cast_stmts_.clear();
+      update_cast_stmts_.clear();
+      tensor2vectorized_vars_.clear();
+      return false;
+    }
+
     return true;
   }
 
