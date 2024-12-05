@@ -146,9 +146,17 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
     GET_CUDA_VECTOR_TYPE_NAME(type.is_int(8), "char");
     GET_CUDA_VECTOR_TYPE_NAME(type.is_int(16), "short");
     GET_CUDA_VECTOR_TYPE_NAME(type.is_int(32), "int");
+    GET_CUDA_VECTOR_TYPE_NAME(type.is_int(64), "longlong");
+
+    GET_CUDA_VECTOR_TYPE_NAME(type.is_uint(8), "uchar");
+    GET_CUDA_VECTOR_TYPE_NAME(type.is_uint(16), "ushort");
     GET_CUDA_VECTOR_TYPE_NAME(type.is_uint(32), "uint");
+    GET_CUDA_VECTOR_TYPE_NAME(type.is_uint(64), "ulonglong");
+
     GET_CUDA_VECTOR_TYPE_NAME(type.is_float(32), "float");
     GET_CUDA_VECTOR_TYPE_NAME(type.is_float16(), "float16");
+    GET_CUDA_VECTOR_TYPE_NAME(type.is_float(64), "double");
+
     GET_CUDA_VECTOR_TYPE_NAME(type.is_bfloat16(), "bfloat16");
 #undef GET_CUDA_VECTOR_TYPE_NAME
 
