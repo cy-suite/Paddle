@@ -77,12 +77,20 @@ class SToSReshardFunction(ReshardFunction):
             pre_shape.pop(out_split_axis)
             pre_shape[in_split_axis] *= nranks
             in_all2all = paddle._C_ops.reshape(out_transpose, pre_shape)
+            in_all2all_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
+                src_value.type(), dst_dist_attr
+            )
+            in_all2all.set_type(in_all2all_type)
         else:
             in_all2all = paddle._C_ops.share_data_(src_value)
 
         src_mesh = src_dist_attr.process_mesh
         group = new_process_group(sorted(src_mesh.process_ids))
-        dst_value = paddle._C_ops.all_to_all(src_value, group.id)
+        dst_value = paddle._C_ops.all_to_all(in_all2all, group.id)
+        out_all2all_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
+            in_all2all.type(), src_dist_attr
+        )
+        dst_value.set_type(out_all2all_type)
         dst_value.get_defining_op().dist_attr = (
             paddle.base.libpaddle.pir.create_op_dist_attribute(
                 src_mesh, [src_dist_attr], [dst_dist_attr], -1
@@ -91,11 +99,11 @@ class SToSReshardFunction(ReshardFunction):
 
         if in_split_axis != 0:
             post_shape = copy.copy(src_value.shape)
-            post_shape[in_split_axis] = post_shape[in_split_axis] // nranks
+            post_shape[0] = post_shape[0] // nranks
             post_shape.insert(0, nranks)
-            dst_value = paddle._C_ops.reshape(dst_value, post_shape)
+            dst_value = paddle.reshape(dst_value, post_shape)
 
-            axes = list(i in range(1, len(post_shape)))
+            axes = list(range(1, len(post_shape)))
             axes.insert(in_split_axis, 0)
             dst_value = paddle._C_ops.transpose(dst_value, axes)
 

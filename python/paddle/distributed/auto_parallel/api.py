@@ -842,7 +842,6 @@ def reshard(
             dist_attr._set_partial_dims(partial_dims)
 
         alltoall_dim = _specific_alltoall_dim(dist_tensor, mesh, placements)
-        print("alltoall_dim: ", alltoall_dim)
         if alltoall_dim is not None:
             return _NdMeshAlltoAll.apply(
                 dist_tensor, mesh, placements, alltoall_dim
