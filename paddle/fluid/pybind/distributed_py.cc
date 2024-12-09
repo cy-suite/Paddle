@@ -1242,7 +1242,10 @@ void BindDistributed(py::module *m) {
               py::arg("src"),
               py::arg("num"),
               py::arg("id"),
-              py::call_guard<py::gil_scoped_release>());
+              py::call_guard<py::gil_scoped_release>())
+          .def_static("get_profiles",
+                      distributed::ProcessGroup::GetProfiles,
+                      py::call_guard<py::gil_scoped_release>());
 
 #if defined(PADDLE_WITH_RCCL) || defined(PADDLE_WITH_NCCL)
   py::class_<distributed::ProcessGroupNCCL,

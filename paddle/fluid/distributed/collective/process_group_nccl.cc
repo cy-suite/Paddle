@@ -22,6 +22,8 @@
 #include "paddle/phi/common/memory_utils.h"
 #include "paddle/phi/core/distributed/check/nccl_dynamic_check.h"
 #include "paddle/phi/core/distributed/check/static_check.h"
+#include "paddle/phi/core/distributed/comm_async_recorder.h"
+#include "paddle/phi/core/distributed/comm_async_time_profiler.h"
 #include "paddle/phi/core/distributed/comm_context_manager.h"
 #include "paddle/phi/core/distributed/comm_task_manager.h"
 #include "paddle/phi/core/distributed/nccl_comm_task.h"
@@ -37,6 +39,7 @@ COMMON_DECLARE_bool(use_stream_safe_cuda_allocator);
 COMMON_DECLARE_bool(use_cuda_malloc_async_allocator);
 COMMON_DECLARE_bool(enable_async_trace);
 COMMON_DECLARE_bool(eager_communication_connection);
+COMMON_DECLARE_bool(enable_async_time_profiler);
 
 // set this flag to `true` and recompile to enable dynamic checks
 constexpr bool FLAGS_enable_nccl_dynamic_check = false;
@@ -160,6 +163,9 @@ ProcessGroupNCCL::~ProcessGroupNCCL() {
   if (FLAGS_enable_async_trace) {
     auto& comm_task_manager = phi::distributed::CommTaskManager::GetInstance();
     comm_task_manager.Stop();
+  }
+  if (FLAGS_enable_async_time_profiler) {
+    phi::distributed::CommAsyncTimeProfiler::GetInstance().Stop();
   }
 }
 
@@ -920,9 +926,15 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Collective(
 
   auto nccl_comm_ctx = this->GetCommContext(&store_key);
 
-  if (!FLAGS_enable_async_trace) {
+  if (FLAGS_enable_async_time_profiler) {
+    auto recoder = std::make_shared<phi::distributed::CommAsyncRecorder>(
+        place, gid_, nccl_stream);
+    recoder->StartRecord();
     fn(nccl_comm_ctx, nccl_stream);
-  } else {
+    recoder->EndRecord();
+    auto& profiler = phi::distributed::CommAsyncTimeProfiler::GetInstance();
+    profiler.AddRecorder(std::move(recoder));
+  } else if (FLAGS_enable_async_trace) {
     std::string group_key = place_to_group_key_.at(key);
     auto comm_task =
         std::make_shared<phi::distributed::NCCLCommTask>(place,
@@ -945,6 +957,8 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Collective(
 
     auto& comm_task_manager = phi::distributed::CommTaskManager::GetInstance();
     comm_task_manager.CommTaskEnqueue(std::move(comm_task));
+  } else {
+    fn(nccl_comm_ctx, nccl_stream);
   }
 
   if (!use_calc_stream) {
@@ -1039,27 +1053,32 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Point2Point(
   auto nccl_comm = comm_ctx->nccl_comm();
   auto nccl_stream = use_calc_stream ? calc_ctx->stream() : comm_ctx->stream();
 
-  std::string group_key = place_to_group_key_.at(key);
-  auto comm_task =
-      std::make_shared<phi::distributed::NCCLCommTask>(place,
-                                                       group_key,
-                                                       p2p_rank,
-                                                       p2p_nrank,
-                                                       gid_,
-                                                       p2p_comm_seq_[key],
-                                                       tensor.numel(),
-                                                       sync_op,
-                                                       use_calc_stream,
-                                                       nccl_comm,
-                                                       nccl_stream,
-                                                       comm_type,
-                                                       pg_timeout_);
-
   auto nccl_comm_ctx = this->GetCommContext(&store_key);
 
-  if (!FLAGS_enable_async_trace) {
+  if (FLAGS_enable_async_time_profiler) {
+    auto recoder = std::make_shared<phi::distributed::CommAsyncRecorder>(
+        place, gid_, nccl_stream);
+    recoder->StartRecord();
     fn(nccl_comm_ctx, nccl_stream, p2p_target_rank);
-  } else {
+    recoder->EndRecord();
+    auto& profiler = phi::distributed::CommAsyncTimeProfiler::GetInstance();
+    profiler.AddRecorder(std::move(recoder));
+  } else if (FLAGS_enable_async_trace) {
+    std::string group_key = place_to_group_key_.at(key);
+    auto comm_task =
+        std::make_shared<phi::distributed::NCCLCommTask>(place,
+                                                         group_key,
+                                                         p2p_rank,
+                                                         p2p_nrank,
+                                                         gid_,
+                                                         p2p_comm_seq_[key],
+                                                         tensor.numel(),
+                                                         sync_op,
+                                                         use_calc_stream,
+                                                         nccl_comm,
+                                                         nccl_stream,
+                                                         comm_type,
+                                                         pg_timeout_);
     comm_task->StartRecord();
     fn(nccl_comm_ctx, nccl_stream, p2p_target_rank);
     comm_task->EndRecord();
@@ -1067,6 +1086,8 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Point2Point(
 
     auto& comm_task_manager = phi::distributed::CommTaskManager::GetInstance();
     comm_task_manager.CommTaskEnqueue(std::move(comm_task));
+  } else {
+    fn(nccl_comm_ctx, nccl_stream, p2p_target_rank);
   }
 
   if (!use_calc_stream) {
