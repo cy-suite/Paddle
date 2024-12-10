@@ -68,7 +68,7 @@ bool ContainsVectorizableAxis(const ir::IRSchedule* sch,
 
   VLOG(4) << "Checking ContainsVectorizableAxis on block: [" << block_id
           << "], loop:\n"
-          << sch->GetModule().GetExprs().front() << "\n vectorize expr:]\n"
+          << sch->GetModule().GetExprs().front() << "\n vectorize expr:\n"
           << vectorize_expr;
 
   // Get all the lter values in the axis bind that contain a loop var and the
