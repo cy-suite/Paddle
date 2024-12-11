@@ -225,13 +225,7 @@ inline void run_program_ad_func(
     int64_t device_type = static_cast<int64_t>(tensor.place().GetType());
     place_hash_key = hash_with_seed(place_hash_key, device_type);
   }
-  // RunProgramAPI(x_tmp,
-  //               params_tmp,
-  //               out,
-  //               step_scope,
-  //               require_any_grad,
-  //               attrs,
-  //               place_hash_key);
+
   VLOG(2) << "start run run_program grad";
   auto is_test = false;
   if (attrs.count("is_test")) {
