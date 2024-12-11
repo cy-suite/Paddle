@@ -98,7 +98,7 @@ cc_library(ops_extra_info SRCS ops_extra_info.cc DEPS attribute phi common)
 
 set(COMMON_OP_DEPS ${COMMON_OP_DEPS} phi common)
 set(COMMON_OP_DEPS ${COMMON_OP_DEPS} selected_rows_utils
-lod_tensor executor static_prim_api)
+lod_tensor executor static_prim_api executor_cache)
 set(COMMON_OP_DEPS ${COMMON_OP_DEPS} static_prim_api static_utils static_global_utils prim_utils)
 set(COMMON_OP_DEPS ${COMMON_OP_DEPS} box_wrapper ps_gpu_wrapper)
 set(COMMON_OP_DEPS ${COMMON_OP_DEPS} processgroup_comm_utils)
