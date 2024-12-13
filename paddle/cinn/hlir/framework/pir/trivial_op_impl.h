@@ -164,6 +164,7 @@ struct FusionGroupInfo {
   std::vector<int64_t> reduce_axis;
   std::vector<std::string> reduce_var_name;
   bool can_apply_grid_reduce;
+  bool can_apply_vectorize;
 
   std::string DebugPrint() {
     std::stringstream ss;
@@ -171,7 +172,8 @@ struct FusionGroupInfo {
        << "\nloop_strides: " << cinn::utils::Join(loop_strides, ", ")
        << "\nreduce_axis: " << cinn::utils::Join(reduce_axis, " ")
        << "\nreduce_var_name: " << cinn::utils::Join(reduce_var_name, " ")
-       << "\ncan_apply_grid_reduce: " << can_apply_grid_reduce;
+       << "\ncan_apply_grid_reduce: " << can_apply_grid_reduce
+       << "\ncan_apply_vectorize: " << can_apply_vectorize;
     return ss.str();
   }
 };

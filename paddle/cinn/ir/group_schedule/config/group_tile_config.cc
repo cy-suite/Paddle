@@ -154,6 +154,7 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   base_info->loop_ranges = group_info->loop_ranges;
   base_info->loop_strides = group_info->loop_strides;
   base_info->can_apply_grid_reduce = group_info->can_apply_grid_reduce;
+  base_info->can_apply_vectorize = group_info->can_apply_vectorize;
 
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
@@ -179,6 +180,7 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
 TileConfigMap BuildVectorizeConfig(
     const std::shared_ptr<ScheduleConfig::BaseInfo>& base_info,
     const common::Target& target) {
+  if (!base_info->can_apply_vectorize) return {};
   // current only support [S, R] and [S]
   const int iters_dim = base_info->iter_space_type.size();
   if (iters_dim > 2) return {};
@@ -189,12 +191,12 @@ TileConfigMap BuildVectorizeConfig(
   ReduceMethod reduce_method = NoneReduceMethod();
   int vectorize_factor = 1;
   const std::vector<int> vectorize_factors{4, 2};
-
+  bool can_vectorize = false;
   auto const CheckVectorize = [&](int nums, int threads, int factor) {
     const int deal_elements_in_warp = threads * factor;
     if (nums % deal_elements_in_warp == 0) {
       vectorize_factor = factor;
-      base_info->enable_vectorize = true;
+      can_vectorize = true;
       return true;
     }
     return false;
@@ -230,9 +232,10 @@ TileConfigMap BuildVectorizeConfig(
       }
     }
   }
-
-  if (!base_info->enable_vectorize) return {};
-
+  if (!can_vectorize) {
+    base_info->can_apply_vectorize = false;
+    return {};
+  }
   int64_t sp_inner_num = [&]() -> int64_t {
     if (rd_thread_num > 1) return 1;
     spatial_numel = spatial_numel / sp_thread_num / vectorize_factor;

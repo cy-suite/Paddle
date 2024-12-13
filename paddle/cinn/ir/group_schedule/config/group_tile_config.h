@@ -40,7 +40,7 @@ struct ScheduleConfig {
     bool has_dynamic_spatial{false};
     bool has_dynamic_reduce{false};
     bool can_apply_grid_reduce{false};
-    bool enable_vectorize{false};
+    bool can_apply_vectorize{false};
     IterSpaceType iter_space_type;
   };
 

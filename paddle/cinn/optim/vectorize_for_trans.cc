@@ -225,15 +225,23 @@ class ScheduleBlockTensorVectorizeTeller : public ir::IRMutator<Expr *> {
       return false;
     }
 
-    cinn::optim::Simplify(&offset);
-    Expr origin_offset = ir::ir_utils::IRCopy(offset);
+    // only with vectorize axis offset
+    auto only_vectorize_axis_offset = ir::ir_utils::IRCopy(offset);
+    for (const auto &[key, value] : var_symbols) {
+      if (key == iter_var_->name) continue;
+      cinn::ir::ir_utils::IrReplaceVarBroadcast(
+          &only_vectorize_axis_offset, Expr(value), Expr(int32_t(0)));
+    }
+
+    cinn::optim::Simplify(&only_vectorize_axis_offset);
+    Expr origin_offset = ir::ir_utils::IRCopy(only_vectorize_axis_offset);
     cinn::ir::ir_utils::IrReplaceVarBroadcast(
         &origin_offset, Expr(iter_var_), Expr(int32_t(0)));
     cinn::optim::Simplify(&origin_offset);
     bool is_zero = true;
     bool is_continous = true;
     for (int i = 1; i < factor_; i++) {
-      Expr next = ir::ir_utils::IRCopy(offset);
+      Expr next = ir::ir_utils::IRCopy(only_vectorize_axis_offset);
       cinn::ir::ir_utils::IrReplaceVarBroadcast(
           &next, Expr(iter_var_), Expr(int32_t(i)));
       cinn::optim::Simplify(&next);

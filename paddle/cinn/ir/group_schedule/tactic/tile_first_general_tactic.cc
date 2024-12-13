@@ -138,11 +138,11 @@ bool ContainsVectorizableAxis(const ir::IRSchedule* sch,
 
 bool ScheduleBlockEnableVectorize(const ScheduleConfig& config,
                                   const std::string& block_id) {
-  if (!config.base_info->enable_vectorize) return false;
+  if (!config.base_info->can_apply_vectorize) return false;
 
   // currently, dont't support vectorize for SplitedTransformTensor
   // ScheduleBlock
-  if (ir::IsSplitTransformTensorName(block_id)) return false;
+  // if (ir::IsSplitTransformTensorName(block_id)) return false;
 
   if (!UseContinuousDataTile(config)) return false;
 
