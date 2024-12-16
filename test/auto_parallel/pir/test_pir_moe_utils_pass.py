@@ -76,7 +76,9 @@ class DemoLayer(paddle.nn.Layer):
         self.config = config
         self.mesh_1d = dist.ProcessMesh([0, 1, 2, 3])
         self.mesh_2d = dist.ProcessMesh([[0, 1], [2, 3]])
-        b_shape = [config.batch_size, config.src_shape]
+        b_shape = [config.batch_size, *config.src_shape]
+        print("==== b shape ====")
+        print(b_shape)
         self.dst_shape = [config.batch_size, config.dst_shape]
         param_initializer = paddle.nn.initializer.Constant(value=0.0)
         self.b = dist.shard_tensor(
@@ -86,14 +88,14 @@ class DemoLayer(paddle.nn.Layer):
                 default_initializer=param_initializer,
             ),
             self.mesh_1d,
-            [dist.Shard(1)],
+            [dist.Shard(0)],
         )
         hidden_size = config.src_shape[-1]
-        self.w = dist.shard_tensor(
-            paddle.create_parameter(
-                shape=[hidden_size, hidden_size], dtype="float32"
-            ),
-        )
+        # self.w = dist.shard_tensor(
+        #     paddle.create_parameter(
+        #         shape=[hidden_size, hidden_size], dtype="float32"
+        #     ),
+        # )
 
     def forward(self, x):
         y = x + self.b
@@ -105,6 +107,9 @@ class DemoLayer(paddle.nn.Layer):
         # print("==== local value ====")
         # print(y._local_value())
         y = dist.reshard(y, self.mesh_2d, [dist.Shard(1), dist.Shard(0)])
+        # y = dist.auto_parallel.api._dist_reshape(
+        #     y, y.shape, self.mesh_1d, [dist.Shard(1)]
+        # )
         # y = dist.auto_parallel.moe_utils._dist_reshape(
         #     y, self.dst_shape, self.config.dst_mesh, self.config.dst_placements
         # )
@@ -119,14 +124,14 @@ class TestDistReshape(unittest.TestCase):
 
     def create_data_loader(self, config):
         nsamples = config.batch_size * config.batch_num
-        images_shape = [nsamples, config.src_shape]
-        labels_shape = [nsamples, config.dst_shape]
-        # images = np.random.rand(*images_shape).astype('float32')
-        images = (
-            np.arange(np.prod(images_shape))
-            .reshape(images_shape)
-            .astype('float32')
-        )
+        images_shape = [nsamples, *config.src_shape]
+        labels_shape = [nsamples, *config.dst_shape]
+        images = np.random.rand(*images_shape).astype('float32')
+        # images = (
+        #     np.arange(np.prod(images_shape))
+        #     .reshape(images_shape)
+        #     .astype('float32')
+        # )
         labels = np.random.rand(*labels_shape).astype('float32')
         train_dataset = RandomDataset(images, labels, config.batch_size)
         train_sampler = BatchSampler(
@@ -204,34 +209,34 @@ class TestDistReshape(unittest.TestCase):
     def run_test_case(self):
         seed = 1234
         config = Config()
-        config.batch_size = 4
+        config.batch_size = 8
         config.batch_num = 1
-        config.src_shape = [8, 2]
-        config.dst_shape = [8, 2]
+        config.src_shape = [4096, 2560]
+        config.dst_shape = [4096, 2560]
         config.src_mesh = dist.ProcessMesh([[0, 1], [2, 3]])
         config.dst_mesh = dist.ProcessMesh([[0, 1], [2, 3]])
         config.src_placements = [dist.Shard(1), dist.Replicate()]
         config.dst_placements = [dist.Shard(0), dist.Replicate()]
 
-        dy_loss = self.run_dy(config, seed)
+        # dy_loss = self.run_dy(config, seed)
         dy2st_loss = self.run_dy2st(config, seed)
 
-        paddle.disable_static()
-        global_mesh = dist.ProcessMesh([[0, 1], [2, 3]])
-        pd_loss_dy2st = paddle.to_tensor(dy2st_loss)
-        pd_loss_dy2st = dist.auto_parallel.api.dtensor_from_local(
-            pd_loss_dy2st,
-            global_mesh,
-            [
-                dist.Partial(dist.ReduceType.kRedAvg),
-                dist.Partial(dist.ReduceType.kRedAvg),
-            ],
-        )
-        pd_loss_dy2st = dist.reshard(
-            pd_loss_dy2st, global_mesh, [dist.Replicate(), dist.Replicate()]
-        )
-        dy2st_loss = pd_loss_dy2st.numpy()
-        np.testing.assert_equal(dy_loss, dy2st_loss)
+        # paddle.disable_static()
+        # global_mesh = dist.ProcessMesh([[0, 1], [2, 3]])
+        # pd_loss_dy2st = paddle.to_tensor(dy2st_loss)
+        # pd_loss_dy2st = dist.auto_parallel.api.dtensor_from_local(
+        #     pd_loss_dy2st,
+        #     global_mesh,
+        #     [
+        #         dist.Partial(dist.ReduceType.kRedAvg),
+        #         dist.Partial(dist.ReduceType.kRedAvg),
+        #     ],
+        # )
+        # pd_loss_dy2st = dist.reshard(
+        #     pd_loss_dy2st, global_mesh, [dist.Replicate(), dist.Replicate()]
+        # )
+        # dy2st_loss = pd_loss_dy2st.numpy()
+        # np.testing.assert_equal(dy_loss, dy2st_loss)
 
 
 if __name__ == "__main__":

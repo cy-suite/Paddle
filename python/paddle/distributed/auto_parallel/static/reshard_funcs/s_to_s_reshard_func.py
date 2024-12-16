@@ -16,6 +16,7 @@
 import copy
 
 import paddle
+from paddle.distributed.utils.stream_utils import ExecutionStreamType
 
 from ..process_group import new_process_group
 from .base_reshard_func import (
@@ -87,6 +88,9 @@ class SToSReshardFunction(ReshardFunction):
         src_mesh = src_dist_attr.process_mesh
         group = new_process_group(sorted(src_mesh.process_ids))
         dst_value = paddle._C_ops.all_to_all(in_all2all, group.id)
+        dst_value.get_defining_op().set_execution_stream(
+            ExecutionStreamType.DefaultStream.value
+        )
         out_all2all_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
             in_all2all.type(), src_dist_attr
         )

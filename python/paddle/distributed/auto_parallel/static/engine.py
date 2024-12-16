@@ -843,8 +843,6 @@ class Engine:
             global_params_grads = []
             params_grads = []
 
-        print("==== dist program before reshard pass ====")
-        print(dist_program)
         # TODO(hitywt) Step 3.2: Reshard Pass
         #   resolute the reshard op into special collective operation.
         #   collect the communicator created during resolution.
@@ -901,20 +899,14 @@ class Engine:
         ):
             check_chunk_id(dist_program)
 
-        print("==== dist program after all pass ====")
-        print(dist_program)
         # TODO(JZ-LIANG) Step 4.4 Dist2Dense Pass
         # NOTE All optimization pass that need dist_attr info should be called before Dist2Dense Pass.
         dense_program = dist_program.clone()
         paddle.distributed.auto_parallel.moe_utils._replace_dist_reshape_pass(
             dense_program
         )
-        print("==== dense program after replace_dist_reshape_pass ====")
-        print(dense_program)
         paddle.base.libpaddle.pir.apply_dist2dense_pass(dense_program)
         remove_unuseful_comm_op_pass(dense_program)
-        print("==== dense program after dist2dense pass ====")
-        print(dense_program)
 
         if core._enable_dist_prim_all():
             logging.info("apply decompose in auto parallel")

@@ -411,46 +411,81 @@ class ReshardPasses:
 # dist ops with the executable share_data_ ops.
 def replace_moe_sub_mesh_tensors(op):
     cur_rank = paddle.distributed.get_rank()
-    in_value = op.operand_source(0)
-    out_value = None
-    out_idx = -1
-    for idx, val in enumerate(op.results()):
-        val_mesh = val.dist_attr().process_mesh
-        if cur_rank in val_mesh.process_ids:
-            assert (
-                out_value is None
-            ), f'{op} has more than one results on rank {cur_rank}'
-            out_value = val
-            out_idx = idx
+    if cur_rank in op.dist_attr.process_mesh.process_ids:
+        in_value = op.operand_source(0)
+        out_value = None
+        out_idx = -1
+        for idx, val in enumerate(op.results()):
+            val_mesh = val.dist_attr().process_mesh
+            if cur_rank in val_mesh.process_ids:
+                assert (
+                    out_value is None
+                ), f'{op} has more than one results on rank {cur_rank}'
+                out_value = val
+                out_idx = idx
 
-    paddle.pir.set_insertion_point(op)
-    local_value = paddle._C_ops.share_data_(in_value)
-    local_value_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
-        out_value.type(), out_value.dist_attr()
-    )
-    local_value.set_type(local_value_type)
-    out_value.replace_all_uses_with(local_value)
-
-    op_dist_attr = op.dist_attr
-    share_data_op = local_value.get_defining_op()
-    share_data_op.dist_attr = (
-        paddle.base.libpaddle.pir.create_op_dist_attribute(
-            op_dist_attr.process_mesh,
-            [op_dist_attr.operand(0).as_tensor_dist_attr()],
-            [op_dist_attr.result(out_idx).as_tensor_dist_attr()],
+        paddle.pir.set_insertion_point(op)
+        local_value = paddle._C_ops.share_data_(in_value)
+        local_value_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
+            out_value.type(), out_value.dist_attr()
         )
-    )
-    for val in op.results():
-        if not val.use_empty():
-            update_pylayer_output(val)
+        local_value.set_type(local_value_type)
+        out_value.replace_all_uses_with(local_value)
+
+        op_dist_attr = op.dist_attr
+        share_data_op = local_value.get_defining_op()
+        share_data_op.dist_attr = (
+            paddle.base.libpaddle.pir.create_op_dist_attribute(
+                op_dist_attr.process_mesh,
+                [op_dist_attr.operand(0).as_tensor_dist_attr()],
+                [op_dist_attr.result(out_idx).as_tensor_dist_attr()],
+            )
+        )
+        for val in op.results():
+            if not val.use_empty():
+                update_pylayer_output(val)
+
     assert all(val.use_empty() for val in op.results())
     op.erase()
 
 
-def remove_sub_block_unused_inputs(op):
-    inputs_size = op.operand_source.num_operands()
-    inputs = [op.operand_source(i) for i in range(inputs_size)]
-    # remove unused inputs
+def replace_moe_global_mesh_tensor(op):
+    cur_rank = paddle.distributed.get_rank()
+    if cur_rank in op.dist_attr.process_mesh.process_ids:
+        out_value = op.result(0)
+        in_value = None
+        in_idx = -1
+        for idx, val in enumerate(op.operands_source()):
+            val_mesh = val.dist_attr().process_mesh
+            if cur_rank not in val_mesh.process_ids:
+                continue
+            assert (
+                in_value is None
+            ), f'{op} has more than one inputs on rank {cur_rank}'
+            in_value = val
+            in_idx = idx
+
+        paddle.pir.set_insertion_point(op)
+        local_value = paddle._C_ops.share_data_(in_value)
+        # local_value = paddle.assign(in_value)
+        local_value_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
+            out_value.type(), out_value.dist_attr()
+        )
+        local_value.set_type(local_value_type)
+        out_value.replace_all_uses_with(local_value)
+
+        op_dist_attr = op.dist_attr
+        share_data_op = local_value.get_defining_op()
+        share_data_op.dist_attr = (
+            paddle.base.libpaddle.pir.create_op_dist_attribute(
+                op_dist_attr.process_mesh,
+                [op_dist_attr.operand(in_idx).as_tensor_dist_attr()],
+                [op_dist_attr.result(0).as_tensor_dist_attr()],
+            )
+        )
+
+    assert all(val.use_empty() for val in op.results())
+    op.erase()
 
 
 class RemovePasses:
@@ -632,44 +667,6 @@ class RemovePasses:
         RemovePasses.remove_no_need_in_startup(
             dist_startup_program, dist_main_program
         )
-
-
-def replace_moe_global_mesh_tensor(op):
-    cur_rank = paddle.distributed.get_rank()
-    out_value = op.result(0)
-    in_value = None
-    in_idx = -1
-    for idx, val in enumerate(op.operands_source()):
-        val_mesh = val.dist_attr().process_mesh
-        if cur_rank not in val_mesh.process_ids:
-            continue
-        assert (
-            in_value is None
-        ), f'{op} has more than one inputs on rank {cur_rank}'
-        in_value = val
-        in_idx = idx
-
-    paddle.pir.set_insertion_point(op)
-    local_value = paddle._C_ops.share_data_(in_value)
-    # local_value = paddle.assign(in_value)
-    local_value_type = paddle.base.libpaddle.pir.cvt_to_dist_type(
-        out_value.type(), out_value.dist_attr()
-    )
-    local_value.set_type(local_value_type)
-    out_value.replace_all_uses_with(local_value)
-
-    op_dist_attr = op.dist_attr
-    share_data_op = local_value.get_defining_op()
-    share_data_op.dist_attr = (
-        paddle.base.libpaddle.pir.create_op_dist_attribute(
-            op_dist_attr.process_mesh,
-            [op_dist_attr.operand(in_idx).as_tensor_dist_attr()],
-            [op_dist_attr.result(0).as_tensor_dist_attr()],
-        )
-    )
-
-    assert all(val.use_empty() for val in op.results())
-    op.erase()
 
 
 # Note: this is the pass in the dense program

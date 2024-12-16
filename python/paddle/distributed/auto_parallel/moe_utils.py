@@ -372,20 +372,60 @@ def _replace_dist_reshape_pass(dist_program):
             op.erase()
 
 
-def _reshard_mesh_shape(
+def _only_reshard_mesh_shape(
     dist_tensor: Tensor, mesh: ProcessMesh, placements: list[Placement]
 ):
     if not os.getenv("FLAGS_enable_moe_utils") == "true":
         return False
 
-    src_mesh = dist_tensor.process_mesh
+    if paddle.in_dynamic_mode():
+        src_placements = dist_tensor.placements
+        src_mesh = dist_tensor.process_mesh
+    elif paddle.framework.in_pir_mode():
+        src_placements = dist_tensor.dist_attr().placements_attr
+        src_mesh = dist_tensor.dist_attr().process_mesh
+    else:
+        raise NotImplementedError(
+            "_only_reshard_mesh_shape is only supported in dynamic and pir mode."
+        )
     if src_mesh == mesh or src_mesh.process_ids != mesh.process_ids:
         return False
 
     # only the mesh shapes are different,
-    # if the placements are all replicate,
+    # if the placements are all replicate or partial,
     # then we can reshard the mesh shapes
-    if not all(p.is_replicated() for p in dist_tensor.placements + placements):
+    if any(p.is_shard() for p in src_placements + placements):
         return False
 
+    if src_placements[0].is_partial():
+        for p in src_placements + placements:
+            if p != src_placements[0]:
+                return False
+
     return True
+
+
+def _reshard_mesh_shape(
+    dist_tensor: Tensor, mesh: ProcessMesh, placements: list[Placement]
+):
+    """
+    Reshard the mesh shape of the dist tensor. This is used to only modify
+    the mesh shape of the input, and its data is not changed.
+
+    E.g.
+      1. [0,1,2,3], [Replicate()]  --> [[0,1],[2,3]], [Replicate(), Replicate()]
+      2. [[0,1],[2,3]] [Partial(),Partial()]  --> [0,1,2,3], [Partial()]
+    """
+    if paddle.in_dynamic_mode():
+        src_placements = dist_tensor.placements
+        src_mesh = dist_tensor.process_mesh
+    elif paddle.framework.in_pir_mode():
+        src_placements = dist_tensor.dist_attr().placements_attr
+        src_mesh = dist_tensor.dist_attr().process_mesh
+    else:
+        raise NotImplementedError(
+            "_only_reshard_mesh_shape is only supported in dynamic and pir mode."
+        )
+
+    dst_placements = [placements[0]] * mesh.ndim
+    return _dist_reshape(dist_tensor, dist_tensor.shape, mesh, dst_placements)

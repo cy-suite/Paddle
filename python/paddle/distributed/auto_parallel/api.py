@@ -67,8 +67,8 @@ from paddle.optimizer import Optimizer
 
 from .moe_utils import (
     _cal_local_shape,
-    _dist_reshape,
     _NdMeshAlltoAll,
+    _only_reshard_mesh_shape,
     _reshard_mesh_shape,
     _specific_alltoall_dim,
 )
@@ -828,6 +828,8 @@ def reshard(
             >>> print(out_d_tensor)
 
     """
+    if _only_reshard_mesh_shape(dist_tensor, mesh, placements):
+        return _reshard_mesh_shape(dist_tensor, mesh, placements)
 
     if paddle.framework.in_dynamic_mode():
         # TODO(LiYuRio): static logic here, reshard should be changed for dygraph logic
@@ -847,10 +849,6 @@ def reshard(
                 dist_tensor, mesh, placements, alltoall_dim
             )
 
-        if _reshard_mesh_shape(dist_tensor, mesh, placements):
-            return _dist_reshape(
-                dist_tensor, dist_tensor.shape, mesh, placements
-            )
         return paddle.base.core.reshard(dist_tensor, dist_attr)
     elif in_pir_mode():
         return paddle._C_ops.reshard(dist_tensor, mesh, placements)
