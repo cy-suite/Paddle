@@ -542,9 +542,17 @@ std::vector<ir::Var> GetAllForIters(const ir::Expr& expr) {
 bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
   bool can_vectorize = true;
   for (const auto& body : op_compute_bodies) {
-    ir::Expr expr_schedule_block_realize =
-        trivial_fusion_detail::ExprSetFinderUtils::ChildScheduleBlockRealizes
-            .GetSingle(body);
+    using trivial_fusion_detail::ExprSetFinderUtils::ChildScheduleBlockRealizes;
+    using trivial_fusion_detail::ExprSetFinderUtils::ExprSetFinder;
+    ExprSetFinder finder =
+        ChildScheduleBlockRealizes * ExprSetFinder::GetIdentity();
+    const auto& o = finder(body);
+
+    if (o.size() != 1) {
+      return false;
+    }
+
+    ir::Expr expr_schedule_block_realize = *o.begin();
     bool is_reduce =
         ir::analyzer::IsReductionSBlock(expr_schedule_block_realize);
     if (is_reduce) continue;
