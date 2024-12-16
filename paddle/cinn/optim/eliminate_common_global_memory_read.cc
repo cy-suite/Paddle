@@ -243,6 +243,11 @@ struct GlobalTensorInfoCollector : public ir::IRMutator<Expr*> {
 
   void Visit(const ir::For* op, ir::Expr* expr) override {
     auto* node = expr->As<ir::For>();
+
+    // If the current context is vectorized, the common global memory read
+    // elimination optimization is not necessary.
+    if (op->is_vectorized()) return;
+
     PADDLE_ENFORCE_NOT_NULL(
         node,
         ::common::errors::InvalidArgument("The input expr should be a For"));
