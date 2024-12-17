@@ -225,22 +225,24 @@ TileConfigMap BuildVectorizeConfig(
       vectorize_factor = factor;
       const int elements_in_warp = kWarpSize * vectorize_factor;
       warp_nums = CeilDiv(spatial_numel, elements_in_warp);
-      warp_nums = Trim(warp_nums, 1, 16);
+      warp_nums = Trim(warp_nums, 1, 32);
       sp_thread_num = kWarpSize * warp_nums;
       if (CheckVectorize(spatial_numel, sp_thread_num, vectorize_factor)) {
         break;
       }
     }
   }
+
   if (!can_vectorize) {
     base_info->can_apply_vectorize = false;
     return {};
   }
+
   int64_t sp_inner_num = [&]() -> int64_t {
     if (rd_thread_num > 1) return 1;
     spatial_numel = spatial_numel / sp_thread_num / vectorize_factor;
-    int64_t expected = spatial_numel / (sm_count * 16);
-    return Trim(expected, 1, 4);
+    int64_t expected = spatial_numel / (sm_count * 64);
+    return Trim(expected, 1, 1);
   }();
 
   int64_t sp_upper_bound = base_info->spatial_numel > 1 ? kMaxNumel : 1;

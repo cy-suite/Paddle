@@ -56,6 +56,59 @@ std::unordered_map<std::string, ir::Var> CollectExprSymbols(Expr *x) {
   return std::move(mutator.GetSymbols());
 }
 
+class ForOpWithMultiScheduleBlockSupportVectorize
+    : public ir::IRMutator<ir::Expr *> {
+ public:
+  void operator()(ir::Expr *expr) { ir::IRMutator<>::Visit(expr, expr); }
+
+ private:
+  void Visit(const ir::ScheduleBlockRealize *op, Expr *expr) override {
+    auto *node = expr->As<ir::ScheduleBlockRealize>();
+    PADDLE_ENFORCE_NOT_NULL(
+        node,
+        ::common::errors::InvalidArgument("The input expr should be a Block"));
+    IRMutator<>::Visit(op, expr);
+    if (in_vectorize_scope) {
+      for_op_blocks_.push_back(expr);
+    }
+  }
+
+  void Visit(const ir::For *op, ir::Expr *expr) override {
+    auto *forloop = expr->As<ir::For>();
+    if (forloop->is_vectorized()) in_vectorize_scope = true;
+
+    IRMutator<>::Visit(op, expr);
+
+    if (for_op_blocks_.size() > 1 && in_vectorize_scope) {
+      std::vector<Expr> stmts;
+      for (auto block : for_op_blocks_) {
+        Var new_iterator(
+            cinn::common::UniqName(forloop->loop_var->name + "_s"));
+
+        cinn::ir::ir_utils::IrReplaceVarBroadcast(
+            block, forloop->loop_var, Expr(new_iterator));
+
+        ir::Expr f_expr = ir::For::Make(new_iterator,
+                                        forloop->min,
+                                        forloop->extent,
+                                        forloop->for_type(),
+                                        forloop->device_api,
+                                        ir::Block::Make({*block}),
+                                        forloop->vectorize_info(),
+                                        forloop->bind_info());
+        stmts.push_back(f_expr);
+      }
+      Expr block_expr = ir::Block::Make(stmts);
+      *expr = block_expr;
+    }
+    in_vectorize_scope = false;
+    for_op_blocks_.clear();
+  }
+
+  bool in_vectorize_scope{false};
+  std::vector<ir::Expr *> for_op_blocks_;
+};
+
 class ScheduleBlockTensorVectorizeTeller : public ir::IRMutator<Expr *> {
  public:
   ScheduleBlockTensorVectorizeTeller(Var iter_var, const int factor)
@@ -539,6 +592,10 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
 }  // namespace
 
 void VectorizeForTrans(Expr *expr) {
+  ForOpWithMultiScheduleBlockSupportVectorize update;
+  VLOG(5) << "before multi schedule block deal with vectorize " << *expr;
+  update(expr);
+  VLOG(5) << "after multi schedule block deal with vectorize " << *expr;
   VectorizeForTransMutator collector;
   VLOG(5) << "before vectorize for trans " << *expr;
   collector(expr);

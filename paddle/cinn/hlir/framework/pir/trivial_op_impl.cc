@@ -608,45 +608,46 @@ bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
         },
         /* uniq_target = */ false);
 
-    auto CheckTensorIsBroadcastAndContinuous =
-        [&](const std::vector<Expr>& indices) {
-          int loop_idx = 0;
-          bool is_broadcast = false;
-          for (int i = 0; i < indices.size(); ++i) {
-            const ir::Expr& index = indices[i];
-            if (index.is_constant()) {
-              is_broadcast = true;
-              continue;
-            }
-
-            if (!index.is_var()) return false;
-            ir::Var iter_var = index.as_var_ref();
-            if (!iter_var2value.count(iter_var)) {
-              return false;
-            }
-            ir::Expr iter_value = iter_var2value.at(iter_var);
-            PADDLE_ENFORCE_EQ(
-                iter_value.as_var() || iter_value.is_constant(),
-                true,
-                ::common::errors::PreconditionNotMet(
-                    "Required iter_value shall be var or constant type."));
-            for (; loop_idx < for_iters.size(); ++loop_idx) {
-              if (for_iters[loop_idx] == iter_value.as_var_ref()) {
-                break;
-              }
-            }
-
-            if (loop_idx == for_iters.size()) {
-              return false;
-            }
-          }
-          if (is_broadcast) return true;
-          return false;
-        };
-
-    auto CheckoutTensorIsContinuous = [&](const std::vector<Expr>& indices) {
+    auto CheckTensorIsBroadcastAndContinuous = [&](std::vector<Expr>& indices) {
+      int loop_idx = 0;
+      bool is_broadcast = false;
       for (int i = 0; i < indices.size(); ++i) {
-        const ir::Expr& index = indices[i];
+        ir::Expr& index = indices[i];
+        cinn::optim::Simplify(&index);
+        if (index.is_constant()) {
+          is_broadcast = true;
+          continue;
+        }
+
+        if (!index.is_var()) return false;
+        ir::Var iter_var = index.as_var_ref();
+        if (!iter_var2value.count(iter_var)) {
+          return false;
+        }
+        ir::Expr iter_value = iter_var2value.at(iter_var);
+        PADDLE_ENFORCE_EQ(
+            iter_value.as_var() || iter_value.is_constant(),
+            true,
+            ::common::errors::PreconditionNotMet(
+                "Required iter_value shall be var or constant type."));
+        for (; loop_idx < for_iters.size(); ++loop_idx) {
+          if (for_iters[loop_idx] == iter_value.as_var_ref()) {
+            break;
+          }
+        }
+
+        if (loop_idx == for_iters.size()) {
+          return false;
+        }
+      }
+      if (is_broadcast || indices.size() < for_iters.size()) return true;
+      return false;
+    };
+
+    auto CheckoutTensorIsContinuous = [&](std::vector<Expr>& indices) {
+      for (int i = 0; i < indices.size(); ++i) {
+        ir::Expr& index = indices[i];
+        cinn::optim::Simplify(&index);
         if (index.is_constant()) return false;
         if (!index.is_var()) return false;
         ir::Var iter_var = index.as_var_ref();
