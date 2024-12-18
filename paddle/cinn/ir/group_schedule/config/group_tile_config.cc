@@ -154,10 +154,10 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   base_info->loop_ranges = group_info->loop_ranges;
   base_info->loop_strides = group_info->loop_strides;
   base_info->can_apply_grid_reduce = group_info->can_apply_grid_reduce;
-  base_info->can_apply_vectorize = group_info->can_apply_vectorize;
-
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
+  base_info->can_apply_vectorize =
+  base_info->has_if_else_op = group_info->vectorize_info.has_if_else_op;
 
   base_info->spatial_numel = 1;
   base_info->reduce_numel = 1;
@@ -167,7 +167,6 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
         base_info->has_dynamic_reduce = true;
       base_info->reduce_numel *= group_info->loop_ranges[i];
     } else {
-      if (group_info->loop_ranges[i] == -1)
         base_info->has_dynamic_spatial = true;
       base_info->spatial_numel *= group_info->loop_ranges[i];
     }
@@ -225,7 +224,12 @@ TileConfigMap BuildVectorizeConfig(
       vectorize_factor = factor;
       const int elements_in_warp = kWarpSize * vectorize_factor;
       warp_nums = CeilDiv(spatial_numel, elements_in_warp);
-      warp_nums = Trim(warp_nums, 1, 32);
+      if (base_info->has_if_else_op) {
+        warp_nums = Trim(warp_nums, 1, 16);
+      } else {
+        warp_nums = Trim(warp_nums, 1, 32);
+      }
+      // warp_nums = Trim(warp_nums, 1, 32);
       sp_thread_num = kWarpSize * warp_nums;
       if (CheckVectorize(spatial_numel, sp_thread_num, vectorize_factor)) {
         break;
@@ -248,7 +252,11 @@ TileConfigMap BuildVectorizeConfig(
   int64_t sp_upper_bound = base_info->spatial_numel > 1 ? kMaxNumel : 1;
   int64_t rd_upper_bound = base_info->reduce_numel > 1 ? kMaxNumel : 1;
   BucketInfo bucket_info{1, sp_upper_bound, 1, rd_upper_bound};
-  warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 32);
+  if (base_info->has_if_else_op) {
+    warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 16);
+  } else {
+    warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 32);
+  }
   TileConfig tile_config{warp_nums,
                          /* tree_reduce_num = */ rd_thread_num,
                          /* grid_reduce_num = */ 1,

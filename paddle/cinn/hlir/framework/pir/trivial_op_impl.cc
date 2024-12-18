@@ -38,6 +38,7 @@
 #include "paddle/pir/include/dialect/control_flow/ir/cf_op.h"
 
 PD_DECLARE_bool(cinn_enable_grid_reduce);
+PD_DECLARE_bool(cinn_enable_vectorize);
 
 namespace cinn {
 namespace hlir {
@@ -539,8 +540,10 @@ std::vector<ir::Var> GetAllForIters(const ir::Expr& expr) {
 
 }  // namespace trivial_fusion_detail
 
-bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
+VectorizeInfo GetCanApplyVectorize(
+    const std::vector<ir::Expr>& op_compute_bodies) {
   bool can_vectorize = true;
+  bool has_if_else_op = false;
   for (const auto& body : op_compute_bodies) {
     using trivial_fusion_detail::ExprSetFinderUtils::ChildScheduleBlockRealizes;
     using trivial_fusion_detail::ExprSetFinderUtils::ExprSetFinder;
@@ -549,7 +552,7 @@ bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
     const auto& o = finder(body);
 
     if (o.size() != 1) {
-      return false;
+      continue;
     }
 
     ir::Expr expr_schedule_block_realize = *o.begin();
@@ -579,6 +582,22 @@ bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
                 ::common::errors::InvalidArgument(
                     "Expected _Tensor_ node in load, but received nullptr."));
             load_tensors_index[tensor->name].push_back(node->indices);
+            return true;
+          }
+          return false;
+        },
+        /* uniq_target = */ false);
+
+    ir::ir_utils::CollectIRNodesWithoutTensor(
+        expr_schedule_block_realize,
+        [&](const ir::Expr* expr) {
+          if (expr->As<ir::IfThenElse>()) {
+            auto* node = expr->As<ir::IfThenElse>();
+            PADDLE_ENFORCE_NOT_NULL(
+                node,
+                ::common::errors::InvalidArgument(
+                    "Expected Load node, but received nullptr."));
+            has_if_else_op = true;
             return true;
           }
           return false;
@@ -625,11 +644,7 @@ bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
           return false;
         }
         ir::Expr iter_value = iter_var2value.at(iter_var);
-        PADDLE_ENFORCE_EQ(
-            iter_value.as_var() || iter_value.is_constant(),
-            true,
-            ::common::errors::PreconditionNotMet(
-                "Required iter_value shall be var or constant type."));
+        if (!iter_value.as_var() && !iter_value.is_constant()) return false;
         for (; loop_idx < for_iters.size(); ++loop_idx) {
           if (for_iters[loop_idx] == iter_value.as_var_ref()) {
             break;
@@ -655,11 +670,7 @@ bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
           return false;
         }
         ir::Expr iter_value = iter_var2value.at(iter_var);
-        PADDLE_ENFORCE_EQ(
-            iter_value.as_var() || iter_value.is_constant(),
-            true,
-            ::common::errors::PreconditionNotMet(
-                "Required iter_value shall be var or constant type."));
+        if (!iter_value.as_var() && !iter_value.is_constant()) return false;
         if (for_iters[i] != iter_value.as_var_ref()) {
           return false;
         }
@@ -704,7 +715,7 @@ bool GetCanApplyVectorize(const std::vector<ir::Expr>& op_compute_bodies) {
     if (!can_vectorize) break;
   }
 
-  return can_vectorize;
+  return {can_vectorize, has_if_else_op};
 }
 
 std::shared_ptr<FusionGroupInfo> GetFusionGroupInfo(
@@ -768,7 +779,9 @@ std::shared_ptr<FusionGroupInfo> GetFusionGroupInfo(
         GetCanApplyGridReduce(op_compute_bodies, group_info->reduce_axis);
   }
 
-  group_info->can_apply_vectorize = GetCanApplyVectorize(op_compute_bodies);
+  if (FLAGS_cinn_enable_vectorize) {
+    group_info->vectorize_info = GetCanApplyVectorize(op_compute_bodies);
+  }
 
   VLOG(4) << group_info->DebugPrint();
   return group_info;
