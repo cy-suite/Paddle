@@ -355,7 +355,7 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
             "Expected _Tensor_ node in Store, but received nullptr."));
     if (in_vectorize_ && node->is_addr_tensor() &&
         tensor_can_vectorized_.count(tensor->name)) {
-      is_assignment_ = IsAssignment(node->value);
+      is_assignment_ = IsAssignment(node->value, node->type());
       TensorVectorized(node, &node->indices, true);
     }
 
@@ -553,9 +553,9 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
 
   // A store is considered to be a pure assignment statement only if the store
   // value is load or cast(load).
-  bool IsAssignment(ir::Expr &value) {  // NOLINT
+  bool IsAssignment(ir::Expr &value, const Type &store_type) {  // NOLINT
     if (auto *cast_op = value.As<ir::Cast>()) {
-      return IsAssignment(cast_op->v());
+      return IsAssignment(cast_op->v(), store_type);
     }
 
     auto *load_op = value.As<ir::Load>();
@@ -568,9 +568,10 @@ class VectorizeForTransMutator : public ir::IRMutator<ir::Expr *> {
         tensor_load,
         ::common::errors::InvalidArgument(
             "Expected _Tensor_ node in Store, but received nullptr."));
-    if (tensor_can_vectorized_.count(tensor_load->name) == 0) {
-      return false;
-    }
+    Type load_type = tensor_load->type();
+    if (store_type != load_type) return false;
+    if (tensor_can_vectorized_.count(tensor_load->name) == 0) return false;
+
     is_assignment_ = true;
     assignment_tensor_name_ = tensor_load->name;
     return true;
