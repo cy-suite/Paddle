@@ -59,163 +59,21 @@ ir::Module CreateSwitchWithBroadcastConditionModule(
 
 namespace detail {
 
-struct CollectHostFunctionVisitor : public ir::IRMutator<> {
-  explicit CollectHostFunctionVisitor(const std::string& module_name)
-      : host_module_builder(module_name + "_host",
-                            cinn::common::DefaultHostTarget()),
-        device_module_builder(module_name + "_gpu_device",
-                              cinn::common::DefaultDeviceTarget()) {}
-
-  std::tuple<ir::Module, ir::Module> operator()(ir::Module m) {
-    ir::IRMutator<>::Visit(m.As<ir::_Module_>());
-    return std::make_tuple(host_module_builder.Build(),
-                           device_module_builder.Build());
-  }
-
- protected:
-  void Visit(ir::_LoweredFunc_* op) override {
-    if (op->body.As<ir::Call>()) {
-      host_module_builder.AddFunctionWithoutOptim(ir::LoweredFunc(op));
-    } else {
-      if (!op->cuda_axis_info.valid()) {
-        op->cuda_axis_info.set_valid(true);
-      }
-      auto host_func = CreateHostFunctionGivenDeviceKernel(op);
-      host_module_builder.AddFunctionWithoutOptim(host_func);
-
-      device_module_builder.AddFunctionWithoutOptim(
-          CreateDeviceFunctionGivenDeviceKernel(ir::LoweredFunc(op)));
-    }
-  }
-
-  /**
-   * Create a wrapper function for a kernel.
-   *
-   * For example, we get a kernel function:
-   *
-   * \code
-   * __global__
-   * void fn (float* a, float* out) { ... }
-   * \endcode
-   *
-   * A host wrapper function will generate for it
-   *
-   * \code
-   * void fn (cinn_buffer_t* a, cinn_buffer_t* out) {
-   *   Call(fn_kernel);
-   * }
-   * \endcode
-   */
-  ir::LoweredFunc CreateHostFunctionGivenDeviceKernel(ir::_LoweredFunc_* func) {
-    // std::vector<Expr> args;
-    // NOTE the suffix `__ptr` makes this argument lower to a pointer in LLVM
-    // backend. args.push_back(Var("args__ptr", type_of<cinn_pod_value_t*>()));
-    // args.push_back(Var("num_args", type_of<int32_t>()));
-    ir::Var kernel_ptr(GenDeviceKernelName(func->name), type_of<std::string>());
-    ir::Var kernel_args(KERNEL_ARGS, type_of<void*>());
-    ir::Var kernel_args_num(KERNEL_ARGS_NUM, type_of<int>());
-    ir::Var kernel_stream(KERNEL_STREAM, type_of<void*>());
-
-    // shared_mem_bytes Can be calculated after codegen_cuda_dev buffer creation
-    // however, this make CodeGenCudaDev before spliting the host and device
-    // module Maybe we could reorder the process.
-    std::optional<Expr> shared_mem_bytes;
-    cinn::common::DefaultDeviceTarget().arch.Match(
-        [&](std::variant<common::UnknownArch,
-                         common::X86Arch,
-                         common::ARMArch>) { CINN_NOT_IMPLEMENTED; },
-        [&](common::NVGPUArch) {
-#ifdef CINN_WITH_CUDA
-          CodeGenCudaDev codegen_dev(cinn::common::DefaultNVGPUTarget());
-          codegen_dev.Compile(ir::LoweredFunc(func));
-          shared_mem_bytes = codegen_dev.GetDynSharedMemOffset();
-#endif
-        },
-        [&](common::HygonDCUArchHIP) {
-#ifdef CINN_WITH_HIP
-          hip::CodeGenHipDevice codegen_dev(
-              cinn::common::DefaultHygonDcuHipTarget());
-          codegen_dev.Compile(ir::LoweredFunc(func));
-          shared_mem_bytes = codegen_dev.GetDynSharedMemOffset();
-#endif
-        });
-
-    VLOG(6) << "Add a call node for func->name " << func->name << "\n"
-            << "grid_dim: (" << func->cuda_axis_info.grid_dim(0) << ", "
-            << func->cuda_axis_info.grid_dim(1) << ", "
-            << func->cuda_axis_info.grid_dim(2) << "), "
-            << "block_dim: (" << func->cuda_axis_info.block_dim(0) << ", "
-            << func->cuda_axis_info.block_dim(1) << ", "
-            << func->cuda_axis_info.block_dim(2) << "), "
-            << "shared_mem: " << shared_mem_bytes.value();
-
-    std::optional<const char*> call_kernel;
-    cinn::common::DefaultDeviceTarget().arch.Match(
-        [&](std::variant<common::UnknownArch,
-                         common::X86Arch,
-                         common::ARMArch>) { CINN_NOT_IMPLEMENTED; },
-        [&](common::NVGPUArch) {
-          call_kernel = runtime::intrinsic::call_cuda_kernel;
-        },
-        [&](common::HygonDCUArchHIP) {
-          call_kernel = runtime::intrinsic::call_hip_kernel;
-        });
-
-    auto call_extern_api =
-        ir::Call::Make(Void(),
-                       call_kernel.value(),
-                       {kernel_ptr,
-                        kernel_args,
-                        kernel_args_num,
-                        func->cuda_axis_info.grid_dim(0),   // grid_x
-                        func->cuda_axis_info.grid_dim(1),   // grid_y
-                        func->cuda_axis_info.grid_dim(2),   // grid_z
-                        func->cuda_axis_info.block_dim(0),  // block_x
-                        func->cuda_axis_info.block_dim(1),  // block_y
-                        func->cuda_axis_info.block_dim(2),  // block_z
-                        shared_mem_bytes.value(),
-                        kernel_stream},
-                       {},
-                       ir::CallType::Extern,
-                       ir::FunctionRef(),
-                       0);
-    std::vector<ir::Argument> arguments = {
-        ir::Argument(kernel_args, ir::Argument::IO::kOutput),
-        ir::Argument(kernel_args_num, ir::Argument::IO::kInput),
-        ir::Argument(kernel_stream, ir::Argument::IO::kOutput)};
-
-    return ir::_LoweredFunc_::Make(func->name, arguments, call_extern_api, {});
-  }
-
-  ir::LoweredFunc CreateDeviceFunctionGivenDeviceKernel(ir::LoweredFunc expr) {
-    auto copied = ir::ir_utils::IRCopy(expr);
-    copied->name = GenDeviceKernelName(copied->name);
-    return copied;
-  }
-
-  inline std::string GenDeviceKernelName(const std::string& fn) {
-    return fn + "_kernel";
-  }
-
- protected:
-  ir::Module::Builder host_module_builder;
-  ir::Module::Builder device_module_builder;
-};
-
-struct CollectBucketStrategyHostFunctionVisitor
-    : public CollectHostFunctionVisitor {
-  explicit CollectBucketStrategyHostFunctionVisitor(
-      const std::string& module_name)
-      : CollectHostFunctionVisitor(module_name),
+struct BucketStrategyHostFunctionCollector {
+  explicit BucketStrategyHostFunctionCollector(const std::string& module_name)
+      : host_module_builder_(module_name + "_host",
+                             cinn::common::DefaultHostTarget()),
+        device_module_builder_(module_name + "_gpu_device",
+                               cinn::common::DefaultDeviceTarget()),
         kernel_args_(KERNEL_ARGS, type_of<void*>()),
         kernel_args_num_(KERNEL_ARGS_NUM, type_of<int>()),
         kernel_stream_(KERNEL_STREAM, type_of<void*>()),
         tensor_shape_args_(TENSOR_SHAPE_ARGS, type_of<int64_t**>()) {}
 
-  std::tuple<ir::Module, ir::Module> operator()(ir::Module m) {
-    Visit(m.As<ir::_Module_>());
-    return std::make_tuple(host_module_builder.Build(),
-                           device_module_builder.Build());
+  std::tuple<ir::Module, ir::Module> CollectAndBuild(ir::Module m) {
+    CollectModuleInfo(m.As<ir::_Module_>());
+    return std::make_tuple(host_module_builder_.Build(),
+                           device_module_builder_.Build());
   }
 
  private:
@@ -224,7 +82,8 @@ struct CollectBucketStrategyHostFunctionVisitor
       const std::pair<int, std::pair<ir::LoweredFunc, Expr>>& b) {
     return a.first > b.first;
   }
-  void Visit(ir::_Module_* op) override {
+
+  void CollectModuleInfo(ir::_Module_* op) {
     if (op->functions.size() == 1 && op->predicates.size() == 0) {
       op->predicates.push_back(ir::Expr(true));
     }
@@ -269,7 +128,7 @@ struct CollectBucketStrategyHostFunctionVisitor
     body_stmts.insert(body_stmts.end(), buckets_.begin(), buckets_.end());
     ir::LoweredFunc host_func = ir::_LoweredFunc_::Make(
         op->functions[0]->name, arguments, ir::Block::Make(body_stmts), {});
-    host_module_builder.AddFunctionWithoutOptim(host_func);
+    host_module_builder_.AddFunctionWithoutOptim(host_func);
 
     // Parse LoweredFunc to infer output tensor's shape
     std::vector<ir::Expr> infer_shape_func_body_stmts(arg_defs_);
@@ -289,7 +148,7 @@ struct CollectBucketStrategyHostFunctionVisitor
                                 infer_shape_arguments,
                                 ir::Block::Make(infer_shape_func_body_stmts),
                                 {});
-    host_module_builder.AddFunctionWithoutOptim(host_infer_shape_func);
+    host_module_builder_.AddFunctionWithoutOptim(host_infer_shape_func);
   }
 
   void ProcessLoweredFunc(ir::LoweredFunc func, ir::Expr predicate);
@@ -311,6 +170,9 @@ struct CollectBucketStrategyHostFunctionVisitor
   ir::Var kernel_args_num_;
   ir::Var kernel_stream_;
   ir::Var tensor_shape_args_;
+
+  ir::Module::Builder host_module_builder_;
+  ir::Module::Builder device_module_builder_;
 };
 
 }  // namespace detail

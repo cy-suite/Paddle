@@ -23,8 +23,8 @@ namespace cinn {
 namespace backends {
 
 std::tuple<ir::Module, ir::Module> SplitDeviceAndHostModule(ir::Module module) {
-  detail::CollectBucketStrategyHostFunctionVisitor visitor(module->name);
-  return visitor(module);
+  detail::BucketStrategyHostFunctionCollector collector(module->name);
+  return collector.CollectAndBuild(module);
 }
 
 ir::Module CreateSwitchWithBroadcastConditionModule(
@@ -164,8 +164,7 @@ static std::string CurTailFnName(const std::string &origin_fn_name) {
   return new_fn_name;
 }
 
-std::string
-detail::CollectBucketStrategyHostFunctionVisitor::GenDeviceKernelName(
+std::string detail::BucketStrategyHostFunctionCollector::GenDeviceKernelName(
     const std::string &fn_name, ir::Expr predicate) {
   std::string cond_str = Predicate2String(predicate);
   // replace '-' with 'NEG'
@@ -182,7 +181,7 @@ detail::CollectBucketStrategyHostFunctionVisitor::GenDeviceKernelName(
   return new_fn_name + "__COND_" + cond_str + "__kernel";
 }
 
-void detail::CollectBucketStrategyHostFunctionVisitor::ProcessLoweredFunc(
+void detail::BucketStrategyHostFunctionCollector::ProcessLoweredFunc(
     ir::LoweredFunc func, ir::Expr predicate) {
   VLOG(4) << "Process Lowered Func" << func;
   ir::_LoweredFunc_ *func_node = func.As<ir::_LoweredFunc_>();
@@ -195,7 +194,7 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessLoweredFunc(
     func_node->cuda_axis_info.set_valid(true);
   }
   // process device func
-  device_module_builder.AddFunctionWithoutOptim(
+  device_module_builder_.AddFunctionWithoutOptim(
       CreateDeviceFunction(func, predicate));
   // process host func
   ir::Var kernel_ptr(GenDeviceKernelName(func_node->name, predicate),
@@ -302,7 +301,7 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessLoweredFunc(
   }
 }
 
-void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
+void detail::BucketStrategyHostFunctionCollector::ProcessArgs(
     ir::LoweredFunc func) {
   const std::vector<ir::Argument> &args = func->args;
   for (int i = 0; i < args.size(); ++i) {
@@ -324,7 +323,7 @@ void detail::CollectBucketStrategyHostFunctionVisitor::ProcessArgs(
 }
 
 ir::LoweredFunc
-detail::CollectBucketStrategyHostFunctionVisitor::CreateDeviceFunction(
+detail::BucketStrategyHostFunctionCollector::CreateDeviceFunction(
     ir::LoweredFunc expr, ir::Expr predicate) {
   auto copied = ir::ir_utils::IRCopy(expr);
   copied->name = GenDeviceKernelName(copied->name, predicate);
