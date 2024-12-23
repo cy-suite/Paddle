@@ -185,6 +185,8 @@ TileConfigMap BuildVectorizeConfig(
   if (iters_dim > 2) return {};
   const auto& last_dim = base_info->iter_space_type.back().first;
   const int sm_count = target.get_multi_processor_count();
+  const int max_threads_per_sm = target.get_max_threads_per_sm();
+  const int max_blocks_per_sm = target.get_max_blocks_per_sm();
   int64_t spatial_numel = base_info->spatial_numel;
   int64_t reduce_numel = base_info->reduce_numel;
   ReduceMethod reduce_method = NoneReduceMethod();
@@ -199,6 +201,22 @@ TileConfigMap BuildVectorizeConfig(
       return true;
     }
     return false;
+  };
+
+  bool is_sm_fully_utilized = true;
+  auto CheckSmUtilization = [sm_count, max_threads_per_sm, max_blocks_per_sm](
+                                int total_threads, int block_size) -> bool {
+    int blocks_needed = CeilDiv(total_threads, block_size);
+    int sms_needed = CeilDiv(blocks_needed, max_blocks_per_sm);
+    float sm_utilization = static_cast<float>(sms_needed) / sm_count;
+
+    if (sm_utilization < 1) {
+      VLOG(5) << "SM utilization is not sufficient for vectorization: "
+              << sm_utilization * 100 << "% (" << sms_needed << "/" << sm_count
+              << " SMs)";
+      return false;
+    }
+    return true;
   };
 
   int64_t sp_thread_num = 1;
@@ -232,12 +250,13 @@ TileConfigMap BuildVectorizeConfig(
       // warp_nums = Trim(warp_nums, 1, 32);
       sp_thread_num = kWarpSize * warp_nums;
       if (CheckVectorize(spatial_numel, sp_thread_num, vectorize_factor)) {
+        is_sm_fully_utilized = CheckSmUtilization(spatial_numel, sp_thread_num);
         break;
       }
     }
   }
 
-  if (!can_vectorize) {
+  if (!can_vectorize || !is_sm_fully_utilized) {
     base_info->can_apply_vectorize = false;
     return {};
   }
