@@ -26,8 +26,7 @@ limitations under the License. */
 #define LEARNING_RATE_DECAY_COUNTER "@LR_DECAY_COUNTER@"
 #define STEP_COUNTER "@PS_STEP_COUNTER@"
 
-namespace paddle {
-namespace distributed {
+namespace paddle::distributed {
 
 using phi::SelectedRows;
 
@@ -1630,5 +1629,4 @@ void FLCommunicator::StartCoordinator(
       new std::thread(&FLCommunicator::SendThreadAsync, this));
 }
 
-}  // namespace distributed
-}  // namespace paddle
+}  // namespace paddle::distributed

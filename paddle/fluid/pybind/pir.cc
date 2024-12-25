@@ -140,8 +140,7 @@ namespace name_analysis = pir::utils::name_analysis;
 COMMON_DECLARE_bool(print_ir);
 COMMON_DECLARE_bool(pir_apply_shape_optimization_pass);
 
-namespace paddle {
-namespace pybind {
+namespace paddle::pybind {
 
 PyTypeObject *g_ir_value_pytype = nullptr;
 
@@ -3181,5 +3180,4 @@ void BindPir(pybind11::module *module) {
   BindDrrPatternContext(&ir_module);
 }
 
-}  // namespace pybind
-}  // namespace paddle
+}  // namespace paddle::pybind

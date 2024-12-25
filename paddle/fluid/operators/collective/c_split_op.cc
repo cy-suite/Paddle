@@ -16,8 +16,7 @@ limitations under the License. */
 
 #include "paddle/common/enforce.h"
 
-namespace paddle {
-namespace operators {
+namespace paddle::operators {
 
 class CSplitOp : public framework::OperatorWithKernel {
  public:
@@ -113,8 +112,7 @@ Split the tensor evenly according to its rank.
   }
 };
 
-}  // namespace operators
-}  // namespace paddle
+}  // namespace paddle::operators
 
 namespace ops = paddle::operators;
 
