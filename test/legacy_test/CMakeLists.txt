@@ -524,6 +524,16 @@ endif()
 
 list(REMOVE_ITEM TEST_OPS "test_stride")
 list(REMOVE_ITEM TEST_OPS "test_graph_reindex")
+if(WITH_XPU)
+  # XPU disables stride by default, so we turn on the flag
+  # manually to pass some stride tests.
+  set(STRIDE_TESTS test_as_strided test_index_select_strided test_tensor_unfold)
+  foreach(STRIDE_TEST_OP ${STRIDE_TESTS})
+    list(REMOVE_ITEM TEST_OPS ${STRIDE_TEST_OP})
+    py_test_modules(${STRIDE_TEST_OP} MODULES ${STRIDE_TEST_OP} ENVS
+                    FLAGS_use_stride_kernel=true)
+  endforeach()
+endif()
 if(WITH_COVERAGE)
   list(REMOVE_ITEM TEST_OPS test_weight_decay)
   list(REMOVE_ITEM TEST_OPS test_cuda_graphed_layer)

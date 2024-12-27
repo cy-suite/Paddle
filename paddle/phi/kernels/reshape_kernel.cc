@@ -64,11 +64,13 @@ void ReshapeKernel<phi::XPUContext>(const XPUContext& dev_ctx,
   auto* src_ptr = x.data();
   auto* dst_ptr = out->data();
   auto size = x.numel() * phi::SizeOf(x.dtype());
-  int ret = xpu::copy(dev_ctx.x_context(),
-                      reinterpret_cast<const int8_t*>(src_ptr),
-                      reinterpret_cast<int8_t*>(dst_ptr),
-                      size);
-  PADDLE_ENFORCE_XDNN_SUCCESS(ret, "copy");
+  if (size > 0) {
+    int ret = xpu::copy(dev_ctx.x_context(),
+                        reinterpret_cast<const int8_t*>(src_ptr),
+                        reinterpret_cast<int8_t*>(dst_ptr),
+                        size);
+    PADDLE_ENFORCE_XDNN_SUCCESS(ret, "copy");
+  }
   out->Resize(dims);
   out->ResetLoD(x.lod());
 }

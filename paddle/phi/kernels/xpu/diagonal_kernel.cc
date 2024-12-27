@@ -31,6 +31,14 @@ void DiagonalKernel(const Context& dev_ctx,
   std::vector<int64_t> xshape = common::vectorize<int64_t>(x.dims());
   std::vector<int64_t> yshape = common::vectorize<int64_t>(out->dims());
 
+  if (axis1 < 0) {
+    axis1 += xshape.size();
+  }
+
+  if (axis2 < 0) {
+    axis2 += xshape.size();
+  }
+
   int r = xpu::diagonal(dev_ctx.x_context(),
                         reinterpret_cast<const XPUType*>(x.data<T>()),
                         reinterpret_cast<XPUType*>(out_data),
