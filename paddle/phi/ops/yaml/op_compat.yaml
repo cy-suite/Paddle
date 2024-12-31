@@ -4113,12 +4113,6 @@
   outputs :
     out: Out
 
-- op: c_broadcast
-  inputs :
-    x : X
-  outputs :
-    out : Out
-
 - op: c_identity
   inputs :
     x : X
