@@ -230,6 +230,40 @@ TileConfigMap BuildVectorizeConfig(
     return true;
   };
 
+  // By default, warp_nums can be a maximum of 8 (256 threads)
+  // The Grid value should be divisible by the SM number as much as possible to
+  // avoid Tail Effect.
+  auto CalculateWarpNums = [&](int total_threads_needed) {
+    int best_warp_nums = 8;
+    int min_diff_to_full_sm = sm_count;
+
+    std::vector<int> thread_configs = {1024, 512, 256};
+    for (int threads_per_block : thread_configs) {
+      int current_warp_count = threads_per_block / kWarpSize;
+      int blocks_needed = std::ceil(static_cast<float>(total_threads_needed) /
+                                    threads_per_block);
+
+      int max_blocks_per_sm_by_threads = max_threads_per_sm / threads_per_block;
+      int max_effective_blocks_per_sm =
+          std::min(max_blocks_per_sm, max_blocks_per_sm_by_threads);
+
+      int required_sms = CeilDiv(blocks_needed, max_effective_blocks_per_sm);
+      if (required_sms <= sm_count) return best_warp_nums;
+      int remaining_sms = required_sms % sm_count;
+      int remaining_blocks = remaining_sms * max_effective_blocks_per_sm;
+      int diff_to_fill_sm = std::abs(remaining_blocks - sm_count);
+      if (remaining_blocks < sm_count) {
+        if (diff_to_fill_sm < min_diff_to_full_sm ||
+            (diff_to_fill_sm == min_diff_to_full_sm &&
+             threads_per_block > best_warp_nums * kWarpSize)) {
+          min_diff_to_full_sm = diff_to_fill_sm;
+          best_warp_nums = current_warp_count;
+        }
+      }
+    }
+    return best_warp_nums;
+  };
+
   int64_t sp_thread_num = 1;
   int64_t rd_thread_num = 1;
   int64_t warp_nums = 1;
@@ -239,7 +273,7 @@ TileConfigMap BuildVectorizeConfig(
       vectorize_factor = factor;
       const int elements_in_warp = kWarpSize * vectorize_factor;
       warp_nums = CeilDiv(reduce_numel, elements_in_warp);
-      warp_nums = Trim(warp_nums, 1, 8);
+      warp_nums = Trim(warp_nums, 1, 32);
       if (warp_nums > 1 || spatial_numel < warp_nums * 64) {
         rd_thread_num = warp_nums * kWarpSize;
         if (CheckVectorize(reduce_numel, rd_thread_num, vectorize_factor)) {
@@ -255,12 +289,8 @@ TileConfigMap BuildVectorizeConfig(
       vectorize_factor = factor;
       const int elements_in_warp = kWarpSize * vectorize_factor;
       warp_nums = CeilDiv(spatial_numel, elements_in_warp);
-      if (base_info->has_if_else_op) {
-        warp_nums = Trim(warp_nums, 1, 16);
-      } else {
-        warp_nums = Trim(warp_nums, 1, 32);
-      }
-      // warp_nums = Trim(warp_nums, 1, 32);
+      warp_nums = Trim(
+          warp_nums, 1, CalculateWarpNums(spatial_numel / vectorize_factor));
       sp_thread_num = kWarpSize * warp_nums;
       if (CheckVectorize(spatial_numel, sp_thread_num, vectorize_factor)) {
         is_sm_fully_utilized =
@@ -285,7 +315,7 @@ TileConfigMap BuildVectorizeConfig(
   int64_t sp_upper_bound = base_info->spatial_numel > 1 ? kMaxNumel : 1;
   int64_t rd_upper_bound = base_info->reduce_numel > 1 ? kMaxNumel : 1;
   BucketInfo bucket_info{1, sp_upper_bound, 1, rd_upper_bound};
-  if (base_info->has_if_else_op) {
+  if (base_info->has_if_else_op && last_dim == "R") {
     warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 16);
   } else {
     warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 32);
