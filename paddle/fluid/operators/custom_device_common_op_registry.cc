@@ -1318,21 +1318,7 @@ void RegisterCustomDeviceCommonKernel(const std::string& dev_type) {
 #ifdef PADDLE_WITH_CUSTOM_DEVICE
   auto device_type = dev_type.c_str();
   /* see [Why use single type kernel] */
-  REGISTER_OP_CUSTOM_DEVICE_KERNEL(
-      save_combine,
-      device_type,
-      paddle::operators ::SaveCombineOpKernel<phi::CustomContext, float>,
-      paddle::operators ::SaveCombineOpKernel<phi::CustomContext, double>,
-      paddle::operators ::SaveCombineOpKernel<phi::CustomContext, int>,
-      paddle::operators ::SaveCombineOpKernel<phi::CustomContext, int64_t>);
-  REGISTER_OP_CUSTOM_DEVICE_KERNEL(
-      load_combine,
-      device_type,
-      paddle::operators::LoadCombineOpKernel<float, phi::CustomContext>,
-      paddle::operators::LoadCombineOpKernel<double, phi::CustomContext>,
-      paddle::operators::LoadCombineOpKernel<int, phi::CustomContext>,
-      paddle::operators::LoadCombineOpKernel<int8_t, phi::CustomContext>,
-      paddle::operators::LoadCombineOpKernel<int64_t, phi::CustomContext>);
+
   REGISTER_OP_CUSTOM_DEVICE_KERNEL(
       c_concat,
       device_type,
