@@ -590,7 +590,7 @@ class _DataLoaderIterMultiProcess(_DataLoaderIterBase):
                 self._clear_and_remove_data_queue()
 
                 # set _workers_done_event should be set before put None
-                # to indices_queue, workers wll exit on reading None from
+                # to indices_queue, workers will exit on reading None from
                 # indices_queue
                 self._workers_done_event.set()
                 for i in range(self._num_workers):
@@ -739,7 +739,7 @@ class _DataLoaderIterMultiProcess(_DataLoaderIterBase):
                 if self._dataset_kind == _DatasetKind.ITER and isinstance(
                     data, _IterableDatasetStopIteration
                 ):
-                    # if a worker get StopIteraion, we shutdown this worker,
+                    # if a worker get StopIteration, we shutdown this worker,
                     # note that this batch indices to trigger StopIteration
                     # is discard, outstanding batch number should be decrease
                     # and another indices should be put for other workers

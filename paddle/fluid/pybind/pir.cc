@@ -70,7 +70,6 @@
 #include "paddle/pir/include/core/builtin_attribute.h"
 #include "paddle/pir/include/core/builtin_op.h"
 #include "paddle/pir/include/core/ir_mapping.h"
-#include "paddle/pir/include/core/parser/ir_parser.h"
 #include "paddle/pir/include/core/program.h"
 #include "paddle/pir/include/core/type.h"
 #include "paddle/pir/include/core/value.h"
@@ -122,7 +121,6 @@ using pir::Int32Attribute;
 using pir::Int64Attribute;
 using pir::IrContext;
 using pir::IrMapping;
-using pir::IrParser;
 using pir::Operation;
 using pir::OpOperand;
 using pir::OpResult;
@@ -683,18 +681,9 @@ void BindProgram(py::module *m) {
           py::arg("targets"))
       .def("_sync_with_cpp", [](const std::shared_ptr<Program> &self) {
         // It's not need _sync_with_cpp in pir, but it's necessary in old static
-        // graph. Add empyt function to avoid python call error.
+        // graph. Add empty function to avoid python call error.
       });
 }
-
-std::shared_ptr<Program> ParseProgram(const std::string &program_str) {
-  std::stringstream ss(program_str);
-  pir::IrContext *ctx = pir::IrContext::Instance();
-  auto program = IrParser(ctx, ss).ParseProgram();
-  return program;
-}
-
-void BindIrParser(py::module *m) { m->def("parse_program", &ParseProgram); }
 
 void RefreshOpStopgradients(Operation *op) {
   if (op->num_operands() == 0 || op->isa<pir::ParameterOp>() ||
@@ -843,7 +832,7 @@ void BindBlock(py::module *m) {
            })
       .def("_sync_with_cpp", [](const Block &self) {
         // It's not need _sync_with_cpp in pir, but it's necessary in old static
-        // graph. Add empyt function to avoid python call error.
+        // graph. Add empty function to avoid python call error.
       });
 }
 
@@ -1474,6 +1463,19 @@ void BindValue(py::module *m) {
              py::list op_list;
              for (auto it = self.use_begin(); it != self.use_end(); ++it) {
                op_list.append(it.owner());
+             }
+             return op_list;
+           })
+      .def("all_used_ops_in_same_block",
+           [](Value &self) -> py::list {
+             py::list op_list;
+             for (auto it = self.use_begin(); it != self.use_end(); ++it) {
+               pir::Operation *used_op = it.owner();
+               while (used_op->GetParent() != self.defining_op()->GetParent() &&
+                      used_op->GetParent()->GetParentOp()) {
+                 used_op = used_op->GetParent()->GetParentOp();
+               }
+               op_list.append(used_op);
              }
              return op_list;
            })
@@ -3199,7 +3201,6 @@ void BindPir(pybind11::module *module) {
   BindShapeConstraintIRAnalysis(&ir_module);
   auto ops_modules = ir_module.def_submodule("ops");
   BindOpsAPI(&ops_modules);
-  BindIrParser(&ir_module);
   BindDrrPatternContext(&ir_module);
 }
 

@@ -24,6 +24,7 @@
 #include "paddle/cinn/optim/eliminate_invariant_loop.h"
 #include "paddle/cinn/optim/extern_call_process_pass.h"
 #include "paddle/cinn/optim/fold_cinn_call_arguments.h"
+#include "paddle/cinn/optim/if_fold_pass.h"
 #include "paddle/cinn/optim/if_fusion_pass.h"
 #include "paddle/cinn/optim/insert_debug_log_callee.h"
 #include "paddle/cinn/optim/ir_simplify.h"
@@ -77,7 +78,11 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
           RemoveGpuForLoops(copied);
         }
         CudaSyncThreadsDropIfThenElse(copied);
-    // CudaTransBufferWithDynamicShape(&copied);
+        FuncPassManager func_pass_manager;
+        VLOG(10) << "Before Optimize TransBufferWithDynamicShape:" << copied;
+        func_pass_manager.AddPass(CreateTransBufferWithDynamicShapePass());
+        func_pass_manager.Run(copied);
+        VLOG(10) << "After Optimize TransBufferWithDynamicShape:" << copied;
 #endif
       },
       [&](common::HygonDCUArchHIP) {
@@ -131,6 +136,11 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
   pass_manager.AddPass(CreateRemoveScheduleBlockPass());
   pass_manager.Run(copied);
   VLOG(10) << "After RemoveScheduleBlock:" << copied;
+
+  StmtPassManager stmt_pass_manager;
+  stmt_pass_manager.AddPass(CreateIfFoldPass());
+  stmt_pass_manager.Run(copied);
+  VLOG(10) << "After IfFoldPass:" << copied;
 
   LowerIntrin(&copied->body, target);
   VLOG(10) << "After LowerIntrin:" << copied;

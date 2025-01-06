@@ -59,6 +59,7 @@ DEFINE_GENERAL_PATTERN(Bmm, paddle::dialect::BmmOp)
 DEFINE_GENERAL_PATTERN(Concat, paddle::dialect::ConcatOp)
 DEFINE_GENERAL_PATTERN(Nonzero, paddle::dialect::NonzeroOp)
 DEFINE_GENERAL_PATTERN(Gelu, paddle::dialect::GeluOp)
+DEFINE_GENERAL_PATTERN(Relu6, paddle::dialect::Relu6Op)
 DEFINE_GENERAL_PATTERN(Fused_gemm_epilogue,
                        paddle::dialect::FusedGemmEpilogueOp)
 DEFINE_GENERAL_PATTERN(Layer_norm, paddle::dialect::LayerNormOp)
@@ -85,6 +86,7 @@ DEFINE_GENERAL_PATTERN(Log, paddle::dialect::LogOp)
 DEFINE_GENERAL_PATTERN(Floor, paddle::dialect::FloorOp)
 DEFINE_GENERAL_PATTERN(Roll, paddle::dialect::RollOp)
 DEFINE_GENERAL_PATTERN(Elu, paddle::dialect::EluOp)
+DEFINE_GENERAL_PATTERN(Selu, paddle::dialect::SeluOp)
 DEFINE_GENERAL_PATTERN(Stanh, paddle::dialect::StanhOp)
 DEFINE_GENERAL_PATTERN(Softplus, paddle::dialect::SoftplusOp)
 DEFINE_GENERAL_PATTERN(ThresholdedRelu, paddle::dialect::ThresholdedReluOp)
@@ -1744,6 +1746,68 @@ class NotEqualOpPattern
   }
 };
 
+template <typename OpType>
+class BitwiseCommonOpPattern : public pir::OpRewritePattern<OpType> {
+ public:
+  using pir::OpRewritePattern<OpType>::OpRewritePattern;
+
+  bool MatchAndRewrite(OpType op,
+                       pir::PatternRewriter &rewriter) const override {
+    if (op->HasAttribute(kCanRunTrtAttr) &&
+        op->template attribute<pir::BoolAttribute>(kCanRunTrtAttr).data()) {
+      return false;
+    }
+    pir::Value input_operand = op.operand_source(0);
+    auto input_type = pir::GetDataTypeFromValue(input_operand);
+    if (!input_type.isa<pir::BoolType>()) {
+      if constexpr (std::is_same_v<OpType, paddle::dialect::BitwiseAndOp>) {
+        VLOG(3) << "the bitwise_and only supports input of BOOL.";
+      } else {
+        VLOG(3) << "the bitwise_or only supports input of BOOL.";
+      }
+      return false;
+    }
+    op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
+    return true;
+  }
+};
+using BitwiseAndOpPattern =
+    BitwiseCommonOpPattern<paddle::dialect::BitwiseAndOp>;
+using BitwiseOrOpPattern = BitwiseCommonOpPattern<paddle::dialect::BitwiseOrOp>;
+
+class BitwiseNotOpPattern
+    : public pir::OpRewritePattern<paddle::dialect::BitwiseNotOp> {
+ public:
+  using pir::OpRewritePattern<paddle::dialect::BitwiseNotOp>::OpRewritePattern;
+
+  bool MatchAndRewrite(paddle::dialect::BitwiseNotOp op,
+                       pir::PatternRewriter &rewriter) const override {
+    if (op->HasAttribute(kCanRunTrtAttr) &&
+        op->attribute<pir::BoolAttribute>(kCanRunTrtAttr).data()) {
+      return false;
+    }
+
+    pir::Value input_operand = op.operand_source(0);
+    auto input_type = pir::GetDataTypeFromValue(input_operand);
+    if (input_type.isa<pir::Int8Type>() || input_type.isa<pir::UInt8Type>()) {
+      VLOG(3) << "INT8 / UINT8 type convert to TRT is not supported.";
+      return false;
+    }
+#if IS_TRT_VERSION_LT(8600)
+    pir::Value x = op.operand_source(0);
+    auto x_type = x.type().dyn_cast<paddle::dialect::DenseTensorType>();
+    auto x_shape = x_type.dims();
+    int dims = x_shape.size();
+    if (dims < 1) {
+      VLOG(3) << "BOOL type does not support 0-dim input when TensorRT < 8.6.";
+      return false;
+    }
+#endif
+    op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
+    return true;
+  }
+};
+
 class FullLikeOpPattern
     : public pir::OpRewritePattern<paddle::dialect::FullLikeOp> {
  public:
@@ -1884,6 +1948,27 @@ class TopkOpPattern : public pir::OpRewritePattern<paddle::dialect::TopkOp> {
         return false;
       }
     }
+    op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
+    return true;
+  }
+};
+
+class CumsumOpPattern
+    : public pir::OpRewritePattern<paddle::dialect::CumsumOp> {
+ public:
+  using pir::OpRewritePattern<paddle::dialect::CumsumOp>::OpRewritePattern;
+  bool MatchAndRewrite(paddle::dialect::CumsumOp op,
+                       pir::PatternRewriter &rewriter) const override {
+    if (op->HasAttribute(kCanRunTrtAttr) &&
+        op.attribute<pir::BoolAttribute>(kCanRunTrtAttr).data()) {
+      return false;
+    }
+
+    if (!pir::GetDefiningOpForInput(op, 1)->isa<paddle::dialect::FullOp>()) {
+      VLOG(3) << "The 'axis' input of pd_op.cumsum must be an integer";
+      return false;
+    }
+
     op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
     return true;
   }
@@ -2133,6 +2218,7 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ADD_PATTERN(DepthwiseConv2d)
     ADD_PATTERN(Nonzero)
     ADD_PATTERN(Gelu)
+    ADD_PATTERN(Relu6)
     ADD_PATTERN(Shape)
     ADD_PATTERN(Shape64)
     ADD_PATTERN(Expand)
@@ -2150,6 +2236,7 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ADD_PATTERN(Floor)
     ADD_PATTERN(Roll)
     ADD_PATTERN(Elu)
+    ADD_PATTERN(Selu)
     ADD_PATTERN(Stanh)
     ADD_PATTERN(Softplus)
     ADD_PATTERN(ThresholdedRelu)
@@ -2168,6 +2255,9 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ps.Add(std::make_unique<ArangeOpPattern>(context));
     ps.Add(std::make_unique<SignOpPattern>(context));
     ps.Add(std::make_unique<LogicalNotOpPattern>(context));
+    ps.Add(std::make_unique<BitwiseAndOpPattern>(context));
+    ps.Add(std::make_unique<BitwiseOrOpPattern>(context));
+    ps.Add(std::make_unique<BitwiseNotOpPattern>(context));
     ps.Add(std::make_unique<LogicalNot_OpPattern>(context));
     ps.Add(std::make_unique<LogicalOrOpPattern>(context));
     ps.Add(std::make_unique<LogicalOr_OpPattern>(context));
@@ -2217,6 +2307,7 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ps.Add(std::make_unique<FullWithTensorPattern>(context));
     ps.Add(std::make_unique<StridedSliceOpPattern>(context));
     ps.Add(std::make_unique<TopkOpPattern>(context));
+    ps.Add(std::make_unique<CumsumOpPattern>(context));
     ps.Add(std::make_unique<SetValueOpPattern>(context));
     ps.Add(std::make_unique<SetValue_OpPattern>(context));
     ps.Add(std::make_unique<SetValueWithTensorOpPattern>(context));
