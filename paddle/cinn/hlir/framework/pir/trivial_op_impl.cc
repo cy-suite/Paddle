@@ -633,7 +633,7 @@ VectorizeInfo GetCanApplyVectorize(
       for (int i = 0; i < indices.size(); ++i) {
         ir::Expr& index = indices[i];
         cinn::optim::Simplify(&index);
-        if (index.is_constant()) {
+        if (index.is_constant() && index.get_constant() == 0) {
           is_broadcast = true;
           continue;
         }
@@ -681,7 +681,6 @@ VectorizeInfo GetCanApplyVectorize(
     // load tensor information
     std::unordered_set<std::string> is_broadcast_continuous_tensors;
     std::unordered_set<std::string> is_continuous_tensors;
-    // bool can_vectorize = true;
     for (const auto& tensor_index : load_tensors_index) {
       for (auto indexs : tensor_index.second) {
         if (CheckTensorIsBroadcastAndContinuous(indexs)) {

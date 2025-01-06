@@ -158,8 +158,8 @@ std::vector<ir::Var> GetAllForIters(const ir::Expr& expr);
 
 }  // namespace trivial_fusion_detail
 struct VectorizeInfo {
-  bool can_apply_vectorize;
-  bool has_if_else_op;
+  bool can_apply_vectorize{false};
+  bool has_if_else_op{false};
 };
 
 struct FusionGroupInfo {

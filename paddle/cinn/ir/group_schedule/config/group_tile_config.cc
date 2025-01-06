@@ -26,6 +26,7 @@ namespace {
 
 const int kMaxNumel = BucketInfo::kMaxNumel;
 const int kWarpSize = 32;
+
 int64_t CeilPow2(int64_t n) {
   int64_t pow = 1;
   while (pow < n) {
@@ -154,10 +155,11 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   base_info->loop_ranges = group_info->loop_ranges;
   base_info->loop_strides = group_info->loop_strides;
   base_info->can_apply_grid_reduce = group_info->can_apply_grid_reduce;
+  base_info->can_apply_vectorize = base_info->has_if_else_op =
+      group_info->vectorize_info.has_if_else_op;
+
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
-  base_info->can_apply_vectorize =
-  base_info->has_if_else_op = group_info->vectorize_info.has_if_else_op;
 
   base_info->spatial_numel = 1;
   base_info->reduce_numel = 1;
@@ -167,6 +169,7 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
         base_info->has_dynamic_reduce = true;
       base_info->reduce_numel *= group_info->loop_ranges[i];
     } else {
+      if (group_info->loop_ranges[i] == -1)
         base_info->has_dynamic_spatial = true;
       base_info->spatial_numel *= group_info->loop_ranges[i];
     }
@@ -279,9 +282,9 @@ TileConfigMap BuildVectorizeConfig(
         if (CheckVectorize(reduce_numel, rd_thread_num, vectorize_factor)) {
           is_sm_fully_utilized = CheckSmUtilization(
               spatial_numel * vectorize_factor, rd_thread_num, "R");
+          reduce_method = BlockReduceMethod();
           break;
         }
-        reduce_method = BlockReduceMethod();
       }
     }
   } else if (iters_dim == 1 && last_dim == "S") {  // Spatial Region

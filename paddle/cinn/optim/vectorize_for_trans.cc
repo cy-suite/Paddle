@@ -292,7 +292,7 @@ class ScheduleBlockTensorVectorizeTeller : public ir::IRMutator<Expr *> {
         &origin_offset, Expr(iter_var_), Expr(int32_t(0)));
     cinn::optim::Simplify(&origin_offset);
     bool is_zero = true;
-    bool is_continous = true;
+    bool is_continuous = true;
     for (int i = 1; i < factor_; i++) {
       Expr next = ir::ir_utils::IRCopy(only_vectorize_axis_offset);
       cinn::ir::ir_utils::IrReplaceVarBroadcast(
@@ -307,7 +307,7 @@ class ScheduleBlockTensorVectorizeTeller : public ir::IRMutator<Expr *> {
       }
 
       if (const_val->value != i) {
-        is_continous = false;
+        is_continuous = false;
         break;
       }
     }
@@ -318,7 +318,7 @@ class ScheduleBlockTensorVectorizeTeller : public ir::IRMutator<Expr *> {
     }
 
     // check Tensor is continuous
-    if (!is_continous) {
+    if (!is_continuous) {
       vectorize_tensors_.clear();
       schedule_block_can_vectorize_ = false;
       return false;

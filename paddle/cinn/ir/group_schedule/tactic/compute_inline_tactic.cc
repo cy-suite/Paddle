@@ -50,7 +50,6 @@ void ComputeInlineTactic::Apply(ir::IRSchedule* sch,
   // if (IsProhibitScheduleExternCallBlock(node->Block())) {
   //    return;
   // }
-  // compute inline tactic not work, when apply vectorize in current schedule
   auto_schedule::AutoInline inliner(target_, output_names_);
   VLOG(6) << "try ComputeInline on: " << block_id
           << ", before ComputeInline, func body: "

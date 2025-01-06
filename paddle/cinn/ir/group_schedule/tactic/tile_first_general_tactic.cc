@@ -140,10 +140,6 @@ bool ScheduleBlockEnableVectorize(const ScheduleConfig& config,
                                   const std::string& block_id) {
   if (!config.base_info->can_apply_vectorize) return false;
 
-  // currently, dont't support vectorize for SplitedTransformTensor
-  // ScheduleBlock
-  // if (ir::IsSplitTransformTensorName(block_id)) return false;
-
   if (!UseContinuousDataTile(config)) return false;
 
   return true;
@@ -242,8 +238,7 @@ void TileFirstGeneralTactic::Apply(ir::IRSchedule* sch,
   if (ir::IsReduceInitTensorName(block_id)) return;
 
   // loops tiling with vectorize
-  if (!IsReductionSBlock(sch->GetBlock(block_id)) &&
-      ScheduleBlockEnableVectorize(context_->config, block_id)) {
+  if (ScheduleBlockEnableVectorize(context_->config, block_id)) {
     ApplyVectorize(sch, block_id);
     return;
   }
@@ -686,11 +681,44 @@ void TileFirstGeneralTactic::ApplyVectorize(ir::IRSchedule* sch,
     loops = sch->GetLoops(block_id);
     DoBind(loops);
   } else {  // Reduce situation
-    // only deal with spatial block and don't support blockIdx.y
-    if (!IsReductionSBlock(sch->GetBlock(block_id))) {
-      auto loops = sch->GetLoops(block_id);
-      // The iter_value bound by axis_bind must contain the loop_var of the axis
-      // to be vectorized.
+    // // only deal with spatial block and don't support blockIdx.y
+    auto loops = sch->GetLoops(block_id);
+    if (IsReductionSBlock(sch->GetBlock(block_id))) {  // deal with reduce block
+      int loop_axis = 1;
+      int threads_axis = 2;
+      int vectorize_axis = 3;
+      if (ContainsVectorizableAxis(sch, loops.size() - 1, block_id)) {
+        sch->Split(loops[1], {-1, rd_thread, vectorize_factor});
+        loops = sch->GetLoops(block_id);
+        sch->Vectorize(loops[vectorize_axis], vectorize_factor);
+      } else {
+        sch->Split(loops[1], {-1, rd_thread});
+        loops = sch->GetLoops(block_id);
+      }
+
+      loops = sch->GetLoops(block_id);
+      sch->Reorder({loops[threads_axis], loops[loop_axis]});
+      threads_axis = 1;
+      loops = sch->GetLoops(block_id);
+      if (IsReductionSBlock(sch->GetBlock(block_id)) &&
+          ir::GetLoopExtent(loops[threads_axis]) != 1) {
+        ir::Expr rf_tensor =
+            sch->FactorizeReduction(loops[threads_axis],
+                                    /* rf_axis = */ 0,
+                                    /* with_write_back_block_init = */ false);
+        map_rf_block_[block_id] = rf_tensor.as_tensor_ref()->name;
+      }
+
+      const auto DoBind = [&](const std::vector<ir::Expr>& loops) {
+        sch->Bind(loops[0], "blockIdx.x");
+        sch->Bind(loops[threads_axis], "threadIdx.x");
+      };
+
+      DoBind(sch->GetLoops(block_id));
+      if (map_rf_block_.count(block_id) > 0) {
+        DoBind(sch->GetLoops(map_rf_block_[block_id]));
+      }
+    } else {  // deal with spatial block
       if (ContainsVectorizableAxis(sch, loops.size() - 1, block_id)) {
         sch->Split(loops[1], std::vector<int>{-1, rd_thread, vectorize_factor});
 
@@ -703,6 +731,7 @@ void TileFirstGeneralTactic::ApplyVectorize(ir::IRSchedule* sch,
           auto threadsIdx_x_axis = vectorize_axis - 1;
           sch->Bind(loops[threadsIdx_x_axis], "threadIdx.x");
         };
+        loops = sch->GetLoops(block_id);
         DoBind(loops);
       } else {
         sch->Split(loops[1], std::vector<int>{-1, rd_thread});
