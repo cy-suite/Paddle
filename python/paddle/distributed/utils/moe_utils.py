@@ -114,8 +114,6 @@ def global_scatter(
             x,
             local_count,
             global_count,
-            'use_calc_stream',
-            use_calc_stream,
             'ring_id',
             ring_id,
         )
@@ -145,7 +143,9 @@ def global_scatter(
                 'global_count': [global_count],
             },
             outputs={'Out': [out]},
-            attrs={'ring_id': ring_id, 'use_calc_stream': use_calc_stream},
+            attrs={
+                'ring_id': ring_id,
+            },
         )
         return out
 
@@ -239,8 +239,6 @@ def global_gather(
             x,
             local_count,
             global_count,
-            'use_calc_stream',
-            use_calc_stream,
             'ring_id',
             ring_id,
         )
@@ -273,7 +271,6 @@ def global_gather(
             outputs={'Out': [out]},
             attrs={
                 'ring_id': group,
-                'use_calc_stream': use_calc_stream,
             },
         )
         return out
