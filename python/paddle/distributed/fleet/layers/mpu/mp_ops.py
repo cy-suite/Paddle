@@ -314,7 +314,6 @@ def _mp_allreduce(
             outputs={'Out': out},
             attrs={
                 'ring_id': ring_id,
-                'use_calc_stream': use_calc_stream,
             },
         )
         return out
@@ -777,7 +776,6 @@ def _parallel_embedding(
     out = _mp_allreduce(
         output_parallel,
         group=group,
-        use_calc_stream=True,
         use_model_parallel=True,
     )
     return out

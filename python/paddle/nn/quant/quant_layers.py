@@ -1048,7 +1048,6 @@ class QuantizedRowParallelLinear(Layer):
             output_ = paddle.distributed.collective._mp_allreduce(
                 output_parallel,
                 group=self.model_parallel_group,
-                use_calc_stream=True,
                 use_model_parallel=True,
             )
         else:
