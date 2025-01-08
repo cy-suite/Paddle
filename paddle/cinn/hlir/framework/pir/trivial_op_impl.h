@@ -157,6 +157,10 @@ std::vector<ir::Var> GetAllIterVars(const ir::Expr& expr);
 std::vector<ir::Var> GetAllForIters(const ir::Expr& expr);
 
 }  // namespace trivial_fusion_detail
+struct VectorizeInfo {
+  bool can_apply_vectorize{false};
+  bool has_if_else_op{false};
+};
 
 struct FusionGroupInfo {
   std::vector<int64_t> loop_ranges;
@@ -164,6 +168,7 @@ struct FusionGroupInfo {
   std::vector<int64_t> reduce_axis;
   std::vector<std::string> reduce_var_name;
   bool can_apply_grid_reduce;
+  VectorizeInfo vectorize_info;
 
   std::string DebugPrint() {
     std::stringstream ss;
@@ -171,7 +176,9 @@ struct FusionGroupInfo {
        << "\nloop_strides: " << cinn::utils::Join(loop_strides, ", ")
        << "\nreduce_axis: " << cinn::utils::Join(reduce_axis, " ")
        << "\nreduce_var_name: " << cinn::utils::Join(reduce_var_name, " ")
-       << "\ncan_apply_grid_reduce: " << can_apply_grid_reduce;
+       << "\ncan_apply_grid_reduce: " << can_apply_grid_reduce
+       << "\ncan_apply_vectorize: " << vectorize_info.can_apply_vectorize
+       << "\nhas_if_else_op: " << vectorize_info.has_if_else_op;
     return ss.str();
   }
 };

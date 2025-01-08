@@ -25,6 +25,7 @@ using TileConfigMap =
 namespace {
 
 const int kMaxNumel = BucketInfo::kMaxNumel;
+const int kWarpSize = 32;
 
 int64_t CeilPow2(int64_t n) {
   int64_t pow = 1;
@@ -154,6 +155,8 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   base_info->loop_ranges = group_info->loop_ranges;
   base_info->loop_strides = group_info->loop_strides;
   base_info->can_apply_grid_reduce = group_info->can_apply_grid_reduce;
+  base_info->can_apply_vectorize = base_info->has_if_else_op =
+      group_info->vectorize_info.has_if_else_op;
 
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
@@ -176,6 +179,159 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   return base_info;
 }
 
+TileConfigMap BuildVectorizeConfig(
+    const std::shared_ptr<ScheduleConfig::BaseInfo>& base_info,
+    const common::Target& target) {
+  if (!base_info->can_apply_vectorize) return {};
+  // current only support [S, R] and [S]
+  const int iters_dim = base_info->iter_space_type.size();
+  if (iters_dim > 2) return {};
+  const auto& last_dim = base_info->iter_space_type.back().first;
+  const int sm_count = target.get_multi_processor_count();
+  const int max_threads_per_sm = target.get_max_threads_per_sm();
+  const int max_blocks_per_sm = target.get_max_blocks_per_sm();
+  int64_t spatial_numel = base_info->spatial_numel;
+  int64_t reduce_numel = base_info->reduce_numel;
+  ReduceMethod reduce_method = NoneReduceMethod();
+  int vectorize_factor = 1;
+  const std::vector<int> vectorize_factors{4, 2};
+  bool can_vectorize = false;
+  auto const CheckVectorize = [&](int nums, int threads, int factor) {
+    const int deal_elements_in_warp = threads * factor;
+    if (nums % deal_elements_in_warp == 0) {
+      vectorize_factor = factor;
+      can_vectorize = true;
+      return true;
+    }
+    return false;
+  };
+
+  bool is_sm_fully_utilized = true;
+  // Only proceed with vectorization if SM utilization exceeds 100%
+  auto CheckSmUtilization =
+      [&](int input_size, int block_size, std::string last_dim) -> bool {
+    if (last_dim != "S" && last_dim != "R") {
+      VLOG(5) << "Invalid last_dim in SmUtilization Check: " << last_dim;
+      return false;
+    }
+
+    int blocks_needed =
+        (last_dim == "S") ? CeilDiv(input_size, block_size) : input_size;
+
+    int max_blocks_per_sm_bythreads = max_threads_per_sm / block_size;
+    int effective_max_blocks_per_sm =
+        std::min(max_blocks_per_sm, max_blocks_per_sm_bythreads);
+    int sms_needed = CeilDiv(blocks_needed, effective_max_blocks_per_sm);
+    float sm_utilization = static_cast<float>(sms_needed) / sm_count;
+
+    if (sm_utilization < 1) {
+      VLOG(5) << "SM utilization is not sufficient for vectorization: "
+              << sm_utilization * 100 << "% (" << sms_needed << "/" << sm_count
+              << " SMs)";
+      return false;
+    }
+    return true;
+  };
+
+  // By default, warp_nums can be a maximum of 8 (256 threads)
+  // The Grid value should be divisible by the SM number as much as possible to
+  // avoid Tail Effect.
+  auto CalculateWarpNums = [&](int total_threads_needed) {
+    int best_warp_nums = 8;
+    int min_diff_to_full_sm = sm_count;
+
+    std::vector<int> thread_configs = {1024, 512, 256};
+    for (int threads_per_block : thread_configs) {
+      int current_warp_count = threads_per_block / kWarpSize;
+      int blocks_needed = std::ceil(static_cast<float>(total_threads_needed) /
+                                    threads_per_block);
+
+      int max_blocks_per_sm_by_threads = max_threads_per_sm / threads_per_block;
+      int max_effective_blocks_per_sm =
+          std::min(max_blocks_per_sm, max_blocks_per_sm_by_threads);
+
+      int required_sms = CeilDiv(blocks_needed, max_effective_blocks_per_sm);
+      if (required_sms <= sm_count) return best_warp_nums;
+      int remaining_sms = required_sms % sm_count;
+      int remaining_blocks = remaining_sms * max_effective_blocks_per_sm;
+      int diff_to_fill_sm = std::abs(remaining_blocks - sm_count);
+      if (remaining_blocks < sm_count) {
+        if (diff_to_fill_sm < min_diff_to_full_sm ||
+            (diff_to_fill_sm == min_diff_to_full_sm &&
+             threads_per_block > best_warp_nums * kWarpSize)) {
+          min_diff_to_full_sm = diff_to_fill_sm;
+          best_warp_nums = current_warp_count;
+        }
+      }
+    }
+    return best_warp_nums;
+  };
+
+  int64_t sp_thread_num = 1;
+  int64_t rd_thread_num = 1;
+  int64_t warp_nums = 1;
+  // Reduce Region
+  if (last_dim == "R") {
+    for (auto factor : vectorize_factors) {
+      vectorize_factor = factor;
+      const int elements_in_warp = kWarpSize * vectorize_factor;
+      warp_nums = CeilDiv(reduce_numel, elements_in_warp);
+      warp_nums = Trim(warp_nums, 1, 32);
+      if (warp_nums > 1 || spatial_numel < warp_nums * 64) {
+        rd_thread_num = warp_nums * kWarpSize;
+        if (CheckVectorize(reduce_numel, rd_thread_num, vectorize_factor)) {
+          is_sm_fully_utilized = CheckSmUtilization(
+              spatial_numel * vectorize_factor, rd_thread_num, "R");
+          reduce_method = BlockReduceMethod();
+          break;
+        }
+      }
+    }
+  } else if (iters_dim == 1 && last_dim == "S") {  // Spatial Region
+    for (auto factor : vectorize_factors) {
+      vectorize_factor = factor;
+      const int elements_in_warp = kWarpSize * vectorize_factor;
+      warp_nums = CeilDiv(spatial_numel, elements_in_warp);
+      warp_nums = Trim(
+          warp_nums, 1, CalculateWarpNums(spatial_numel / vectorize_factor));
+      sp_thread_num = kWarpSize * warp_nums;
+      if (CheckVectorize(spatial_numel, sp_thread_num, vectorize_factor)) {
+        is_sm_fully_utilized =
+            CheckSmUtilization(spatial_numel, sp_thread_num, "S");
+        break;
+      }
+    }
+  }
+
+  if (!can_vectorize || !is_sm_fully_utilized) {
+    base_info->can_apply_vectorize = false;
+    return {};
+  }
+
+  int64_t sp_inner_num = [&]() -> int64_t {
+    if (rd_thread_num > 1) return 1;
+    spatial_numel = spatial_numel / sp_thread_num / vectorize_factor;
+    int64_t expected = spatial_numel / (sm_count * 64);
+    return Trim(expected, 1, 1);
+  }();
+
+  int64_t sp_upper_bound = base_info->spatial_numel > 1 ? kMaxNumel : 1;
+  int64_t rd_upper_bound = base_info->reduce_numel > 1 ? kMaxNumel : 1;
+  BucketInfo bucket_info{1, sp_upper_bound, 1, rd_upper_bound};
+  if (base_info->has_if_else_op && last_dim == "R") {
+    warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 16);
+  } else {
+    warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 32);
+  }
+  TileConfig tile_config{warp_nums,
+                         /* tree_reduce_num = */ rd_thread_num,
+                         /* grid_reduce_num = */ 1,
+                         /* spatial_inner_num = */ sp_inner_num,
+                         /* vectorize_factor = */ vectorize_factor,
+                         reduce_method};
+  return {{bucket_info, tile_config}};
+}
+
 TileConfigMap BuildPureStaticShapeConfig(
     const std::shared_ptr<ScheduleConfig::BaseInfo>& base_info,
     const common::Target& target) {
@@ -184,6 +340,10 @@ TileConfigMap BuildPureStaticShapeConfig(
   int64_t spatial_numel = base_info->spatial_numel;
   int64_t reduce_numel = base_info->reduce_numel;
   ReduceMethod reduce_method = NoneReduceMethod();
+
+  // Try to use vectorization first
+  auto config_map = BuildVectorizeConfig(base_info, target);
+  if (!config_map.empty()) return std::move(config_map);
 
   // 1. Allocate spatial/reduce threads
   // Principals:
@@ -254,6 +414,7 @@ TileConfigMap BuildPureStaticShapeConfig(
                          /* tree_reduce_num = */ rd_thread_num,
                          /* grid_reduce_num = */ rd_block_num,
                          /* spatial_inner_num = */ sp_inner_num,
+                         /* vectorize_factor = */ 1,
                          reduce_method};
   return {{bucket_info, tile_config}};
 }
@@ -272,6 +433,7 @@ TileConfigMap BuildStaticSpatialConfig(
                            /* tree_reduce_num = */ 256,
                            /* grid_reduce_num = */ 1,
                            /* spatial_inner_num = */ 1,
+                           /* vectorize_factor = */ 1,
                            BlockReduceMethod()};
     return {{bucket_info, tile_config}};
   } else {
@@ -285,6 +447,7 @@ TileConfigMap BuildStaticSpatialConfig(
                                  /* tree_reduce_num = */ 32,
                                  /* grid_reduce_num = */ 1,
                                  /* spatial_inner_num = */ 1,
+                                 /* vectorize_factor = */ 1,
                                  WarpReduceMethod()};
 
     BucketInfo bucket_info_257_2048{/* sp_lower_bound = */ 1,
@@ -297,6 +460,7 @@ TileConfigMap BuildStaticSpatialConfig(
                                     /* tree_reduce_num = */ 128,
                                     /* grid_reduce_num = */ 1,
                                     /* spatial_inner_num = */ 1,
+                                    /* vectorize_factor = */ 1,
                                     BlockReduceMethod()};
 
     BucketInfo bucket_info_2049_INF{/* sp_lower_bound = */ 1,
@@ -309,6 +473,7 @@ TileConfigMap BuildStaticSpatialConfig(
                                     /* tree_reduce_num = */ 256,
                                     /* grid_reduce_num = */ 1,
                                     /* spatial_inner_num = */ 1,
+                                    /* vectorize_factor = */ 1,
                                     BlockReduceMethod()};
 
     return {{bucket_info_1_256, tile_config_1_256},
@@ -331,6 +496,7 @@ TileConfigMap BuildStaticReduceConfig(
                                    /* tree_reduce_num = */ 1,
                                    /* grid_reduce_num = */ 1,
                                    /* spatial_inner_num = */ 1,
+                                   /* vectorize_factor = */ 1,
                                    NoneReduceMethod()};
     BucketInfo bucket_info__1024_1M{/* sp_lower_bound = */ 1024,
                                     /* sp_upper_bound = */ 1024 * 1024 - 1,
@@ -342,6 +508,7 @@ TileConfigMap BuildStaticReduceConfig(
                                     /* tree_reduce_num = */ 1,
                                     /* grid_reduce_num = */ 1,
                                     /* spatial_inner_num = */ 4,
+                                    /* vectorize_factor = */ 1,
                                     NoneReduceMethod()};
     BucketInfo bucket_info__1M_INF{/* sp_lower_bound = */ 1024 * 1024,
                                    /* sp_upper_bound = */ kMaxNumel,
@@ -353,6 +520,7 @@ TileConfigMap BuildStaticReduceConfig(
                                    /* tree_reduce_num = */ 1,
                                    /* grid_reduce_num = */ 1,
                                    /* spatial_inner_num = */ 4,
+                                   /* vectorize_factor = */ 1,
                                    NoneReduceMethod()};
     return {{bucket_info__1_1023, tile_config__1_1023},
             {bucket_info__1024_1M, tile_config__1024_1M},
@@ -369,6 +537,7 @@ TileConfigMap BuildStaticReduceConfig(
         /* tree_reduce_num = */ 32,
         /* grid_reduce_num = */ 1,
         /* spatial_inner_num = */ (256 / CeilPow2(base_info->reduce_numel)),
+        /* vectorize_factor = */ 1,
         WarpReduceMethod()};
     return {{bucket_info, tile_config}};
   } else if (base_info->reduce_numel <= 2048) {
@@ -387,6 +556,7 @@ TileConfigMap BuildStaticReduceConfig(
                            tree_reduce_num,
                            /* grid_reduce_num = */ 1,
                            /* spatial_inner_num */ 1,
+                           /* vectorize_factor = */ 1,
                            BlockReduceMethod()};
     return {{bucket_info, tile_config}};
   } else {
@@ -400,6 +570,7 @@ TileConfigMap BuildStaticReduceConfig(
                            /* tree_reduce_num = */ 1024,
                            /* grid_reduce_num = */ 1,
                            /* spatial_inner_num = */ 1,
+                           /* vectorize_factor = */ 1,
                            BlockReduceMethod()};
     return {{bucket_info, tile_config}};
   }
@@ -418,6 +589,7 @@ TileConfigMap BuildDynamicShapeConfig(
                          /* tree_reduce_num = */ 1024,
                          /* grid_reduce_num = */ 1,
                          /* spatial_inner_num = */ 1,
+                         /* vectorize_factor = */ 1,
                          BlockReduceMethod()};
   return {{bucket_info, tile_config}};
 }
