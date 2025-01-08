@@ -41,7 +41,7 @@ class TestGlobalScatterOpTranslator(
         local_count.stop_gradient = False
         global_count.stop_gradient = False
         out = paddle.ones(shape=(1,), dtype='int64')
-        attrs = {'ring_id': 0, 'use_calc_stream': False}
+        attrs = {'ring_id': 0}
         helper = LayerHelper(self.forward_op_type)
         helper.append_op(
             type=self.forward_op_type,

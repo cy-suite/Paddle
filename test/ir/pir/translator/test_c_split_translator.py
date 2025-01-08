@@ -31,7 +31,6 @@ class TestCSplitOpTranslator(test_op_translator.TestOpTranslator):
             'rank': 0,
             'nranks': 2,
             'ring_id': 0,
-            'use_calc_stream': False,
             'use_model_parallel': True,
         }
         helper = LayerHelper(self.op_type)

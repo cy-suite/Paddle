@@ -50,7 +50,6 @@ def all_reduce_new(tensor, reduce_type=str(dist.ReduceOp.SUM), group=None):
         raise ValueError("The type of 'ring_id' for all_reduce should be int.")
 
     # TODO: Support task and use task.wait in static graph mode
-    #       Use use_calc_stream rather than sync_op
     helper = framework.LayerHelper(op_type, **locals())
     if not reduce_type.isdigit():
         raise ValueError(

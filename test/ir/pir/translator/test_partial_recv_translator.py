@@ -35,7 +35,6 @@ class TestPartialRecvOpTranslator(test_op_translator.TestOpTranslator):
             'peer': 0,
             'dtype': convert_np_dtype_to_proto_type(np.float32),
             'out_shape': out.shape,
-            'use_calc_stream': False,
             'num': 1,
             'id': 0,
         }
