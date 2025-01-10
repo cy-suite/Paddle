@@ -160,6 +160,7 @@ std::vector<ir::Var> GetAllForIters(const ir::Expr& expr);
 struct VectorizeInfo {
   bool can_apply_vectorize{false};
   bool has_if_else_op{false};
+  bool has_broadcast_op{false};
 };
 
 struct FusionGroupInfo {

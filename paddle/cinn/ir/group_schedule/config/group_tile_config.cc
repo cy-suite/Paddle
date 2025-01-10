@@ -155,8 +155,9 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   base_info->loop_ranges = group_info->loop_ranges;
   base_info->loop_strides = group_info->loop_strides;
   base_info->can_apply_grid_reduce = group_info->can_apply_grid_reduce;
-  base_info->can_apply_vectorize = base_info->has_if_else_op =
-      group_info->vectorize_info.has_if_else_op;
+  base_info->can_apply_vectorize =
+      group_info->vectorize_info.can_apply_vectorize;
+  base_info->has_if_else_op = group_info->vectorize_info.has_if_else_op;
 
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
@@ -185,7 +186,10 @@ TileConfigMap BuildVectorizeConfig(
   if (!base_info->can_apply_vectorize) return {};
   // current only support [S, R] and [S]
   const int iters_dim = base_info->iter_space_type.size();
-  if (iters_dim > 2) return {};
+  if (iters_dim > 2) {
+    base_info->can_apply_vectorize = false;
+    return {};
+  }
   const auto& last_dim = base_info->iter_space_type.back().first;
   const int sm_count = target.get_multi_processor_count();
   const int max_threads_per_sm = target.get_max_threads_per_sm();

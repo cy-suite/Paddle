@@ -141,7 +141,6 @@ bool ScheduleBlockEnableVectorize(const ScheduleConfig& config,
   if (!config.base_info->can_apply_vectorize) return false;
 
   if (!UseContinuousDataTile(config)) return false;
-
   return true;
 }
 
@@ -648,40 +647,26 @@ void TileFirstGeneralTactic::ApplyVectorize(ir::IRSchedule* sch,
   if (IsSpatialRegion(context_->config)) {
     const auto DoBind = [&](const std::vector<ir::Expr>& loops) {
       sch->Bind(loops[0], "blockIdx.x");
-      if (sp_loop > 1) {
-        sch->Bind(loops[2], "threadIdx.x");
-      } else {
-        sch->Bind(loops[1], "threadIdx.x");
-      }
+      sch->Bind(loops[1], "threadIdx.x");
     };
 
     auto loops = sch->GetLoops(block_id);
     // The iter_value bound by axis_bind must contain the loop_var of the axis
     // to be vectorized.
     if (ContainsVectorizableAxis(sch, loops.size() - 1, block_id)) {
-      if (sp_loop > 1) {
-        sch->Split(loops[0],
-                   std::vector<int>{-1, sp_loop, sp_thread, vectorize_factor});
-      } else {
-        sch->Split(loops[0], std::vector<int>{-1, sp_thread, vectorize_factor});
-      }
+      sch->Split(loops[0], std::vector<int>{-1, sp_thread, vectorize_factor});
 
       // set vectorize schedule primitives
       loops = sch->GetLoops(block_id);
       auto vectorize_axis = loops.size() - 1;
       sch->Vectorize(loops[vectorize_axis], vectorize_factor);
     } else {
-      if (sp_loop > 1) {
-        sch->Split(loops[0], std::vector<int>{-1, sp_loop, sp_thread});
-      } else {
-        sch->Split(loops[0], std::vector<int>{-1, sp_thread});
-      }
+      sch->Split(loops[0], std::vector<int>{-1, sp_thread});
     }
 
     loops = sch->GetLoops(block_id);
     DoBind(loops);
   } else {  // Reduce situation
-    // // only deal with spatial block and don't support blockIdx.y
     auto loops = sch->GetLoops(block_id);
     if (IsReductionSBlock(sch->GetBlock(block_id))) {  // deal with reduce block
       int loop_axis = 1;

@@ -271,6 +271,12 @@ void TileBroadcastTactic::Init(ScheduleContext* context, ir::IRSchedule* sch) {
     return;
   }
 
+  // TODO(XZhang): vectorize tiling config should consider
+  // broadcast situation with TileBroadcastTactic
+  if (context_->config.base_info->can_apply_vectorize) {
+    return;
+  }
+
   // Check whether we can apply this tactic.
   // We can apply if all the following conditions are met:
   // 1. This graph contains only elementwise or broadcast ops (no reduce or
