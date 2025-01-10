@@ -161,3 +161,14 @@ if((WITH_GPU) AND (LINUX))
   set_tests_properties(test_to_distributed_api_for_llama
                        PROPERTIES TIMEOUT "180" LABELS "RUN_TYPE=HYBRID")
 endif()
+if((WITH_GPU) AND (LINUX))
+  py_test_modules(
+    test_dist_llama_inference
+    MODULES
+    test_dist_llama_inference
+    ENVS
+    "http_proxy=;https_proxy=;PYTHONPATH=../..:${PADDLE_BINARY_DIR}/python;FLAGS_enable_pir_api=1"
+  )
+  set_tests_properties(test_dist_llama_inference
+                       PROPERTIES TIMEOUT "300" LABELS "RUN_TYPE=HYBRID")
+endif()
