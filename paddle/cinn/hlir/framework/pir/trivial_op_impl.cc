@@ -544,6 +544,7 @@ VectorizeInfo GetCanApplyVectorize(
     const std::vector<ir::Expr>& op_compute_bodies) {
   bool can_vectorize = true;
   bool has_if_else_op = false;
+  bool has_select_op = false;
   for (const auto& body : op_compute_bodies) {
     using trivial_fusion_detail::ExprSetFinderUtils::ChildScheduleBlockRealizes;
     using trivial_fusion_detail::ExprSetFinderUtils::ExprSetFinder;
@@ -588,21 +589,27 @@ VectorizeInfo GetCanApplyVectorize(
         },
         /* uniq_target = */ false);
 
-    ir::ir_utils::CollectIRNodesWithoutTensor(
-        expr_schedule_block_realize,
-        [&](const ir::Expr* expr) {
-          if (expr->As<ir::IfThenElse>()) {
-            auto* node = expr->As<ir::IfThenElse>();
-            PADDLE_ENFORCE_NOT_NULL(
-                node,
-                ::common::errors::InvalidArgument(
-                    "Expected Load node, but received nullptr."));
-            has_if_else_op = true;
-            return true;
-          }
-          return false;
-        },
-        /* uniq_target = */ false);
+    auto CollectNodesAndSetFlag = [&](auto nodeTypeChecker, bool& flag) {
+      ir::ir_utils::CollectIRNodesWithoutTensor(
+          expr_schedule_block_realize,
+          [&](const ir::Expr* expr) {
+            if (auto* node = nodeTypeChecker(expr)) {
+              PADDLE_ENFORCE_NOT_NULL(
+                  node,
+                  ::common::errors::InvalidArgument(
+                      "Expected Load node, but received nullptr."));
+              flag = true;
+              return true;
+            }
+            return false;
+          },
+          /* uniq_target = */ false);
+    };
+    CollectNodesAndSetFlag(
+        [](const ir::Expr* e) { return e->As<ir::IfThenElse>(); },
+        has_if_else_op);
+    CollectNodesAndSetFlag(
+        [](const ir::Expr* e) { return e->As<ir::Select>(); }, has_select_op);
 
     std::unordered_map<std::string, std::vector<std::vector<Expr>>>
         store_tensors_index;
@@ -714,7 +721,7 @@ VectorizeInfo GetCanApplyVectorize(
     if (!can_vectorize) break;
   }
 
-  return {can_vectorize, has_if_else_op};
+  return {can_vectorize, has_if_else_op, has_select_op};
 }
 
 std::shared_ptr<FusionGroupInfo> GetFusionGroupInfo(

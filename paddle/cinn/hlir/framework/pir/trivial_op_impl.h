@@ -160,6 +160,7 @@ std::vector<ir::Var> GetAllForIters(const ir::Expr& expr);
 struct VectorizeInfo {
   bool can_apply_vectorize{false};
   bool has_if_else_op{false};
+  bool has_select_op{false};
   bool has_broadcast_op{false};
 };
 
@@ -179,7 +180,8 @@ struct FusionGroupInfo {
        << "\nreduce_var_name: " << cinn::utils::Join(reduce_var_name, " ")
        << "\ncan_apply_grid_reduce: " << can_apply_grid_reduce
        << "\ncan_apply_vectorize: " << vectorize_info.can_apply_vectorize
-       << "\nhas_if_else_op: " << vectorize_info.has_if_else_op;
+       << "\nhas_if_else_op: " << vectorize_info.has_if_else_op
+       << "\nhas_select_op: " << vectorize_info.has_select_op;
     return ss.str();
   }
 };

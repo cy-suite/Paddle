@@ -42,6 +42,7 @@ struct ScheduleConfig {
     bool can_apply_grid_reduce{false};
     bool can_apply_vectorize{false};
     bool has_if_else_op{false};
+    bool has_select_op{false};
     IterSpaceType iter_space_type;
   };
 

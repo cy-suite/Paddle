@@ -158,6 +158,7 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
   base_info->can_apply_vectorize =
       group_info->vectorize_info.can_apply_vectorize;
   base_info->has_if_else_op = group_info->vectorize_info.has_if_else_op;
+  base_info->has_select_op = group_info->vectorize_info.has_select_op;
 
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
@@ -282,6 +283,7 @@ TileConfigMap BuildVectorizeConfig(
       warp_nums = CeilDiv(reduce_numel, elements_in_warp);
       warp_nums = Trim(warp_nums, 1, 32);
       if (warp_nums > 1 || spatial_numel < warp_nums * 64) {
+        if (warp_nums < 4 && spatial_numel > 1) break;
         rd_thread_num = warp_nums * kWarpSize;
         if (CheckVectorize(reduce_numel, rd_thread_num, vectorize_factor)) {
           is_sm_fully_utilized = CheckSmUtilization(
@@ -299,6 +301,7 @@ TileConfigMap BuildVectorizeConfig(
       warp_nums = Trim(
           warp_nums, 1, CalculateWarpNums(spatial_numel / vectorize_factor));
       sp_thread_num = kWarpSize * warp_nums;
+      if (base_info->has_select_op) break;
       if (CheckVectorize(spatial_numel, sp_thread_num, vectorize_factor)) {
         is_sm_fully_utilized =
             CheckSmUtilization(spatial_numel, sp_thread_num, "S");
