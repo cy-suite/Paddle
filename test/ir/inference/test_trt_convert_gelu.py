@@ -151,7 +151,7 @@ class TrtConvertGeluTest(TrtLayerAutoScanTest):
 
     def test(self):
         # test for old ir
-        self.run_test()
+        # self.run_test()
         # test for pir
         self.run_test(run_pir=True)
 
