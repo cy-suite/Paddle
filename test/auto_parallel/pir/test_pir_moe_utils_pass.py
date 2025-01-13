@@ -76,21 +76,29 @@ class DemoLayer(paddle.nn.Layer):
         self.config = config
         self.mesh_1d = dist.ProcessMesh([0, 1, 2, 3])
         self.mesh_2d = dist.ProcessMesh([[0, 1], [2, 3]])
-        b_shape = [config.batch_size, *config.src_shape]
-        print("==== b shape ====")
-        print(b_shape)
+        b_shape = [config.batch_size, *config.src_shape]  # [B, S, H]
         self.dst_shape = [config.batch_size, config.dst_shape]
         param_initializer = paddle.nn.initializer.Constant(value=0.0)
+
         self.b = dist.shard_tensor(
             paddle.create_parameter(
                 shape=b_shape,
                 dtype="float32",
                 default_initializer=param_initializer,
             ),
-            self.mesh_1d,
-            [dist.Shard(0)],
+            self.mesh_2d,
+            [dist.Shard(0), dist.Shard(1)],
         )
+
         hidden_size = config.src_shape[-1]
+        self.gate = dist.shard_tensor(
+            paddle.create_parameter(
+                shape=[hidden_size, hidden_size],
+                dtype="float32",
+            ),
+            self.mesh_1d,
+            [dist.Replicate()],
+        )
         # self.w = dist.shard_tensor(
         #     paddle.create_parameter(
         #         shape=[hidden_size, hidden_size], dtype="float32"

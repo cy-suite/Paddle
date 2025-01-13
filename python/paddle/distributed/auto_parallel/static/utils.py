@@ -2806,7 +2806,7 @@ def mesh_equal_ignore_shape_one(
     in the specified dimension. This is used when mesh1 is a sub-mesh
     splitted from a global mesh, in this case, the shape of mesh1 is `1`
     in the split dim.
-    E.g, the folowing two meshes are equal:
+    E.g, the following two meshes are equal:
       mesh1: shape = [1,2,2], process_ids = [0,1,2,3]
       mesh2: shape = [2,2], process_ids = [0,1,2,3]
     """

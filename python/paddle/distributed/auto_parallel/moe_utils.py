@@ -382,8 +382,12 @@ def _only_reshard_mesh_shape(
         src_placements = dist_tensor.placements
         src_mesh = dist_tensor.process_mesh
     elif paddle.framework.in_pir_mode():
-        src_placements = dist_tensor.dist_attr().placements_attr
-        src_mesh = dist_tensor.dist_attr().process_mesh
+        if hasattr(dist_tensor, "dist_attr"):
+            src_placements = dist_tensor.dist_attr().placements_attr
+            src_mesh = dist_tensor.dist_attr().process_mesh
+        else:
+            src_placements = dist_tensor.placements
+            src_mesh = dist_tensor.process_mesh
     else:
         raise NotImplementedError(
             "_only_reshard_mesh_shape is only supported in dynamic and pir mode."

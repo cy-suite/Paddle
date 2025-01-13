@@ -374,6 +374,7 @@ class ReshardPasses:
                     reshard_func = choose_reshard_func(
                         src_dist_attr, dst_dist_attr
                     )
+                    print("op:", op)
                     assert (
                         reshard_func is not None
                     ), f'There is no reshard function that matches src_dist_attr: {src_dist_attr} and dst_dist_attr: {dst_dist_attr}, {var.get_defining_op()}'
