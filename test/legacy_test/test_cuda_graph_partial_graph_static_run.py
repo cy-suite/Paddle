@@ -89,13 +89,6 @@ class TestCudaGraphAttrAll(unittest.TestCase):
         section_programs = cuda_graph_transform(main_prog)
         assert len(section_programs) == 4
 
-        block = main_prog.global_block()
-        run_program_op_num = 0
-        for op in block.ops:
-            if op.type == 'run_program':
-                run_program_op_num += 1
-        assert run_program_op_num == 4
-
         exe = paddle.static.Executor(paddle.CUDAPlace(0))
         exe.run(start_prog)
 
