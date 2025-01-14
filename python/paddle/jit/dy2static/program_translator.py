@@ -1059,7 +1059,7 @@ class ASTStaticFunction(StaticFunction[_InputT, _RetT]):
                 )
                 if cached_program_len > 1:
                     logging_utils.warn(
-                        f"Current {self._function_spec} has more than one cached programs: {cached_program_len}, the last traced progam will be return by default."
+                        f"Current {self._function_spec} has more than one cached programs: {cached_program_len}, the last traced program will be return by default."
                     )
 
                 cache_key = self._program_cache._recent_cache_key
