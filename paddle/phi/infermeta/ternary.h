@@ -242,6 +242,12 @@ void LinspaceInferMeta(const MetaTensor& start,
                        DataType dtype,
                        MetaTensor* out);
 
+void LuSolveInferMeta(const MetaTensor& x,
+                      const MetaTensor& lu,
+                      const MetaTensor& pivots,
+                      const std::string& trans,
+                      MetaTensor* out);
+
 void MatchMatrixTensorInferMeta(const MetaTensor& x,
                                 const MetaTensor& y,
                                 const MetaTensor& w,

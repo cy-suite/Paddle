@@ -3344,6 +3344,86 @@ bool SpectralNormOpInferSymbolicShape(
 
   return true;
 }
+
+bool LuSolveOpInferSymbolicShape(
+    pir::Operation *op, pir::InferSymbolicShapeContext *infer_context) {
+  // Get operand shapes
+  const auto &lu_shape_or_data =
+      infer_context->GetShapeOrDataForValue(op->operand_source(0));
+  const auto &pivots_shape_or_data =
+      infer_context->GetShapeOrDataForValue(op->operand_source(1));
+  const auto &b_shape_or_data =
+      infer_context->GetShapeOrDataForValue(op->operand_source(2));
+
+  // Extract shape information
+  const std::vector<symbol::DimExpr> &lu_dims = lu_shape_or_data.shape();
+  const std::vector<symbol::DimExpr> &pivots_dims =
+      pivots_shape_or_data.shape();
+  const std::vector<symbol::DimExpr> &b_dims = b_shape_or_data.shape();
+
+  // Ensure the LU decomposition input matrix is square
+  PADDLE_ENFORCE_GE(
+      lu_dims.size(),
+      2,
+      common::errors::InvalidArgument(
+          "LU tensor must be at least 2D, but received shape size [%d].",
+          lu_dims.size()));
+  PADDLE_ENFORCE_EQ(
+      lu_dims[lu_dims.size() - 2],
+      lu_dims[lu_dims.size() - 1],
+      common::errors::InvalidArgument(
+          "LU tensor must be square in the last two dimensions, but received "
+          "shape [%s].",
+          lu_dims));
+
+  // Check the shape of the Pivots vector
+  PADDLE_ENFORCE_EQ(
+      pivots_dims.size(),
+      1,
+      common::errors::InvalidArgument(
+          "Pivots must be a 1D tensor, but received shape [%s].", pivots_dims));
+  PADDLE_ENFORCE_EQ(
+      pivots_dims[0],
+      lu_dims[lu_dims.size() - 1],
+      common::errors::InvalidArgument("Pivots size must match LU matrix size, "
+                                      "but received pivots size [%s] "
+                                      "and LU size [%s].",
+                                      pivots_dims[0],
+                                      lu_dims[lu_dims.size() - 1]));
+
+  // Check the shape of matrix B
+  PADDLE_ENFORCE_GE(
+      b_dims.size(),
+      2,
+      common::errors::InvalidArgument(
+          "The matrix B must be at least 2D, but received shape size [%d].",
+          b_dims.size()));
+  PADDLE_ENFORCE_EQ(
+      b_dims[b_dims.size() - 2],
+      lu_dims[lu_dims.size() - 1],
+      common::errors::InvalidArgument(
+          "The number of rows in B must match LU matrix size, but received B "
+          "rows [%s] and LU size [%s].",
+          b_dims[b_dims.size() - 2],
+          lu_dims[lu_dims.size() - 1]));
+
+  // Get batch dimensions
+  std::vector<symbol::DimExpr> batch_dims(lu_dims.begin(), lu_dims.end() - 2);
+
+  // Ensure the batch dimensions of B are consistent with LU
+  for (size_t i = 0; i < batch_dims.size(); ++i) {
+    infer_context->AddEqualCstr(batch_dims[i], b_dims[i]);
+  }
+
+  // Set the output shape
+  std::vector<symbol::DimExpr> out_dims = b_dims;
+  infer_context->SetShapeOrDataForValue(
+      op->result(0),
+      symbol::ShapeOrDataDimExprs{symbol::TensorShapeOrDataDimExprs(out_dims)});
+
+  return true;
+}
+
 bool LstmOpInferSymbolicShape(pir::Operation *op,
                               pir::InferSymbolicShapeContext *infer_context) {
   const auto &input_shape =
