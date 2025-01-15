@@ -26,7 +26,7 @@ class TestPartialSendTranslator(test_op_translator.TestOpTranslator):
     def append_op(self):
         self.op_type = "partial_send"
         x = paddle.ones(shape=(100, 2, 3), dtype='float32')
-        attrs = {'ring_id': 0, 'root_id': 0, 'use_calc_stream': False}
+        attrs = {'ring_id': 0, 'root_id': 0}
         helper = LayerHelper(self.op_type)
         helper.append_op(
             type=self.op_type,

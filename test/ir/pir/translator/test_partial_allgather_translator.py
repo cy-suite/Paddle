@@ -31,7 +31,6 @@ class TestPartialAllgetherOpTranslator(test_op_translator.TestOpTranslator):
             'nranks': 2,
             'rank': 0,
             'ring_id': 0,
-            'use_calc_stream': False,
         }
         helper = LayerHelper(self.op_type)
         helper.append_op(

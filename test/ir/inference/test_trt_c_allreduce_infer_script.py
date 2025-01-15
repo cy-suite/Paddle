@@ -46,7 +46,6 @@ def run(op_type, precision):
             outputs={'Out': c_data},
             attrs={
                 'ring_id': 0,
-                'use_calc_stream': True,
                 'use_model_parallel': True,
             },
         )
