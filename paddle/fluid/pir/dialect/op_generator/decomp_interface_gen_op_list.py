@@ -33,6 +33,7 @@ GENERATE_IMPL_DECOMP = [
     "addmm",
     "allclose",
     "any",
+    "baddbmm",
     "bce_loss",
     "bmm",
     "diag",
