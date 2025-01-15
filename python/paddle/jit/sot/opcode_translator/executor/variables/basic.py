@@ -539,6 +539,7 @@ class TensorVariable(VariableBase):
             "dtype": DTYPE_ABBRS[dtype],
             "stop_gradient": self.meta.stop_gradient,
             "var_name": self.var_name,
+            "dist_info": self.meta.dist_info,
         }
 
     def getitem(self, key):

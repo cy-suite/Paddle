@@ -29,6 +29,14 @@ from paddle.base import core, framework
 from paddle.base.compiler import BuildStrategy
 from paddle.base.data_feeder import check_type, convert_dtype
 from paddle.base.dygraph.base import switch_to_static_graph
+from paddle.distributed.auto_parallel.static.mix_to_dist_pass import (
+    apply_mix2dist_pass,
+)
+from paddle.distributed.auto_parallel.static.pir_pass import (
+    ReshardPasses,
+    apply_partition_pass,
+    remove_unuseful_comm_op_pass,
+)
 from paddle.optimizer.lr import LRScheduler
 from paddle.pir import Value, fake_value, is_fake_value
 
@@ -312,6 +320,24 @@ class RunnableProgram:
             1,
             f"******** [JIT] PIR backward program after PIR PASS ********\n{origin_bwd} ",
         )
+
+    def is_distributed_program(self):
+        for op in self.program.global_block().ops:
+            if op.dist_attr is not None:
+                return True
+        return False
+
+    def apply_dist_fwd_pass(self):
+        if self.is_distributed_program():
+            apply_mix2dist_pass(self.program)
+
+    def apply_dist_bwd_pass(self):
+        if self.is_distributed_program():
+            apply_mix2dist_pass(self.program)
+            apply_partition_pass(self.program)
+            ReshardPasses.apply_reshard_pass(self.program)
+            paddle.base.libpaddle.pir.apply_dist2dense_pass(self.program)
+            remove_unuseful_comm_op_pass(self.program)
 
     # cached property can ensure program is splited only once.
     @cached_property
@@ -750,6 +776,9 @@ class PartialProgramLayer:
             train_program: RunnableProgram = (
                 self.origin_runnable_program.clone()
             )
+
+            train_program.apply_dist_fwd_pass()
+
             # Author(liujinnan): auto_layout_pass should be applied to the original_program, before append backward. So we put it here.
             if auto_layout_is_enabled():
                 pm = paddle.pir.PassManager(2)
@@ -1103,13 +1132,15 @@ class PartialProgramLayer:
             backward_end_op_index,
         ) = forward_index_pass.new_indices
 
-        return RunnableProgram(
+        whole_program = RunnableProgram(
             program,
             (inputs, params, targets),
             (x_grad_value, p_grad_value, o_grad_value),
             (0, forward_end_idx),
             (backward_start_op_index, backward_end_op_index),
         )
+        whole_program.apply_dist_bwd_pass()
+        return whole_program
 
     def _prepare_attributes(self, in_sot_mode=False):
         attrs = [

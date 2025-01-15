@@ -1266,16 +1266,22 @@ class ConcreteProgram:
                 is_to_static=True
             ), static_op_arg_cast_guard(_convert_into_value):
                 # 1. Adds `paddle.static.data` layers for input if needed
-                static_inputs = func_spec.pir_to_static_inputs_with_spec(
-                    input_spec, main_program
+                static_inputs, program_inputs = (
+                    func_spec.pir_to_static_inputs_with_spec(
+                        input_spec, main_program
+                    )
                 )
-                _kwargs = func_spec.pir_to_static_inputs_with_spec(
+                _kwargs, _ = func_spec.pir_to_static_inputs_with_spec(
                     input_kwargs_spec, main_program
                 )
                 if class_instance:
                     static_inputs = (
                         class_instance,
                         *list(static_inputs),
+                    )
+                    program_inputs = (
+                        class_instance,
+                        *list(program_inputs),
                     )
 
                 # 2. Builds program only once and returns the output Variables.
@@ -1319,7 +1325,7 @@ class ConcreteProgram:
             check_view_api_used_by_inplace(main_program)
 
         return ConcreteProgram(
-            inputs=static_inputs,
+            inputs=program_inputs,
             outputs=outputs,
             parameters=all_parameters_and_buffers,
             function=dygraph_function,
