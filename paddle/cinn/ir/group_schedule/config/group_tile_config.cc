@@ -159,6 +159,10 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
       group_info->vectorize_info.can_apply_vectorize;
   base_info->has_if_else_op = group_info->vectorize_info.has_if_else_op;
   base_info->has_select_op = group_info->vectorize_info.has_select_op;
+  base_info->continuous_tensor_nums =
+      group_info->vectorize_info.continuous_tensor_nums;
+  base_info->fusion_group_arg_nums =
+      group_info->vectorize_info.fusion_group_arg_nums;
 
   std::set<int64_t> reduce_dim_loc(group_info->reduce_axis.begin(),
                                    group_info->reduce_axis.end());
@@ -179,6 +183,37 @@ std::shared_ptr<ScheduleConfig::BaseInfo> InitBasicInfo(
 
   base_info->iter_space_type = GetIterSpaceType(group_info, reduce_dim_loc);
   return base_info;
+}
+
+bool SpecialSpatialWithBroadcastCaseCanApplyVectorize(
+    const std::shared_ptr<ScheduleConfig::BaseInfo>& base_info,
+    int grid_dim_x,
+    int wrap_nums_per_block) {
+  if (wrap_nums_per_block == 32) {
+    if (grid_dim_x <= 512 && base_info->continuous_tensor_nums <= 2 &&
+        base_info->fusion_group_arg_nums >= 9) {
+      return false;
+    }
+
+    if (grid_dim_x >= 10240 && base_info->continuous_tensor_nums <= 2 &&
+        base_info->fusion_group_arg_nums >= 10) {
+      return false;
+    }
+  }
+
+  if (wrap_nums_per_block == 16 && grid_dim_x >= 10240) {
+    if (base_info->continuous_tensor_nums <= 2 &&
+        base_info->fusion_group_arg_nums >= 9) {
+      return false;
+    }
+
+    if (base_info->continuous_tensor_nums <= 4 &&
+        base_info->fusion_group_arg_nums >= 11) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 TileConfigMap BuildVectorizeConfig(
@@ -315,13 +350,6 @@ TileConfigMap BuildVectorizeConfig(
     return {};
   }
 
-  int64_t sp_inner_num = [&]() -> int64_t {
-    if (rd_thread_num > 1) return 1;
-    spatial_numel = spatial_numel / sp_thread_num / vectorize_factor;
-    int64_t expected = spatial_numel / (sm_count * 64);
-    return Trim(expected, 1, 1);
-  }();
-
   int64_t sp_upper_bound = base_info->spatial_numel > 1 ? kMaxNumel : 1;
   int64_t rd_upper_bound = base_info->reduce_numel > 1 ? kMaxNumel : 1;
   BucketInfo bucket_info{1, sp_upper_bound, 1, rd_upper_bound};
@@ -330,10 +358,21 @@ TileConfigMap BuildVectorizeConfig(
   } else {
     warp_nums = Trim(sp_thread_num * rd_thread_num / kWarpSize, 1, 32);
   }
+
+  // Deal with Special Cases
+  if (last_dim == "S") {
+    int grid_dim_x = spatial_numel / sp_thread_num / vectorize_factor;
+    if (!SpecialSpatialWithBroadcastCaseCanApplyVectorize(
+            base_info, grid_dim_x, warp_nums)) {
+      base_info->can_apply_vectorize = false;
+      return {};
+    }
+  }
+
   TileConfig tile_config{warp_nums,
                          /* tree_reduce_num = */ rd_thread_num,
                          /* grid_reduce_num = */ 1,
-                         /* spatial_inner_num = */ sp_inner_num,
+                         /* spatial_inner_num = */ 1,
                          /* vectorize_factor = */ vectorize_factor,
                          reduce_method};
   return {{bucket_info, tile_config}};

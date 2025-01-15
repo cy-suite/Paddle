@@ -111,8 +111,18 @@ BucketLoweredFuncsWrapper OpLowererImpl::BucketLower(
 
   // VLOG(4) << "Bucket Lower output values is : " << group->output_values();
   func_bodies = OperationFusion(ops, func_bodies, group->fusion_tracker_ptr);
+
+  std::unordered_set<std::string> fusion_group_args;
+  for (auto value : group->GetInputOpValues()) {
+    fusion_group_args.insert(ValueName(value));
+  }
+
+  for (auto value : group->GetGroupOutputValues()) {
+    fusion_group_args.insert(ValueName(value));
+  }
+
   std::shared_ptr<FusionGroupInfo> fusion_group_info =
-      GetFusionGroupInfo(func_bodies);
+      GetFusionGroupInfo(func_bodies, fusion_group_args);
   // TODO(liangshuhao): grid reduce is disabled for broadcast-leaf group now,
   // because grid reduce introduces extra func args that currently cannot be
   // unified with other broadcast-leaf groups.

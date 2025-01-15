@@ -43,6 +43,8 @@ struct ScheduleConfig {
     bool can_apply_vectorize{false};
     bool has_if_else_op{false};
     bool has_select_op{false};
+    int continuous_tensor_nums{0};
+    int fusion_group_arg_nums{0};
     IterSpaceType iter_space_type;
   };
 

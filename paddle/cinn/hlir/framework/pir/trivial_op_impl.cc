@@ -541,10 +541,12 @@ std::vector<ir::Var> GetAllForIters(const ir::Expr& expr) {
 }  // namespace trivial_fusion_detail
 
 VectorizeInfo GetCanApplyVectorize(
-    const std::vector<ir::Expr>& op_compute_bodies) {
+    const std::vector<ir::Expr>& op_compute_bodies,
+    const std::unordered_set<std::string>& group_args) {
   bool can_vectorize = true;
   bool has_if_else_op = false;
   bool has_select_op = false;
+  std::unordered_set<std::string> is_continuous_tensors;
   for (const auto& body : op_compute_bodies) {
     using trivial_fusion_detail::ExprSetFinderUtils::ChildScheduleBlockRealizes;
     using trivial_fusion_detail::ExprSetFinderUtils::ExprSetFinder;
@@ -559,7 +561,11 @@ VectorizeInfo GetCanApplyVectorize(
     ir::Expr expr_schedule_block_realize = *o.begin();
     bool is_reduce =
         ir::analyzer::IsReductionSBlock(expr_schedule_block_realize);
-    if (is_reduce) continue;
+
+    if (is_reduce) {
+      continue;
+    }
+
     std::vector<ir::Expr> iter_values =
         expr_schedule_block_realize.As<ir::ScheduleBlockRealize>()->iter_values;
     const std::vector<ir::Var> for_iters =
@@ -662,7 +668,10 @@ VectorizeInfo GetCanApplyVectorize(
           return false;
         }
       }
-      if (is_broadcast || indices.size() < for_iters.size()) return true;
+
+      if (is_broadcast || indices.size() < for_iters.size()) {
+        return true;
+      }
       return false;
     };
 
@@ -685,13 +694,9 @@ VectorizeInfo GetCanApplyVectorize(
       return true;
     };
 
-    // load tensor information
-    std::unordered_set<std::string> is_broadcast_continuous_tensors;
-    std::unordered_set<std::string> is_continuous_tensors;
     for (const auto& tensor_index : load_tensors_index) {
       for (auto indexs : tensor_index.second) {
         if (CheckTensorIsBroadcastAndContinuous(indexs)) {
-          is_broadcast_continuous_tensors.insert(tensor_index.first);
           continue;
         }
         if (CheckoutTensorIsContinuous(indexs)) {
@@ -706,7 +711,6 @@ VectorizeInfo GetCanApplyVectorize(
     for (const auto& tensor_index : store_tensors_index) {
       for (auto indexs : tensor_index.second) {
         if (CheckTensorIsBroadcastAndContinuous(indexs)) {
-          is_broadcast_continuous_tensors.insert(tensor_index.first);
           continue;
         }
 
@@ -721,11 +725,23 @@ VectorizeInfo GetCanApplyVectorize(
     if (!can_vectorize) break;
   }
 
-  return {can_vectorize, has_if_else_op, has_select_op};
+  int is_continuous_tensor_size = 0;
+  for (auto tensor_name : is_continuous_tensors) {
+    if (group_args.count(tensor_name)) {
+      is_continuous_tensor_size++;
+    }
+  }
+
+  return {can_vectorize,
+          has_if_else_op,
+          has_select_op,
+          is_continuous_tensor_size,
+          group_args.size()};
 }
 
 std::shared_ptr<FusionGroupInfo> GetFusionGroupInfo(
-    const std::vector<ir::Expr>& op_compute_bodies) {
+    const std::vector<ir::Expr>& op_compute_bodies,
+    const std::unordered_set<std::string>& group_args) {
   using trivial_fusion_detail::AppendBound;
   using trivial_fusion_detail::GetAllForIters;
   using trivial_fusion_detail::IsReduceBody;
@@ -786,7 +802,8 @@ std::shared_ptr<FusionGroupInfo> GetFusionGroupInfo(
   }
 
   if (FLAGS_cinn_enable_vectorize) {
-    group_info->vectorize_info = GetCanApplyVectorize(op_compute_bodies);
+    group_info->vectorize_info =
+        GetCanApplyVectorize(op_compute_bodies, group_args);
   }
 
   VLOG(4) << group_info->DebugPrint();
