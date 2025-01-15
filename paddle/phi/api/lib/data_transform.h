@@ -110,6 +110,33 @@ paddle::optional<std::vector<phi::DenseTensor>> PrepareData(
     const TransformFlag& transform_flag,
     bool is_stride_kernel);
 
+std::shared_ptr<phi::DenseTensor> PrepareData(
+    const std::string& kernel,
+    const Tensor& input,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel);
+
+paddle::optional<phi::DenseTensor> PrepareData(
+    const std::string& kernel,
+    const paddle::optional<Tensor>& input,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel);
+
+std::unique_ptr<std::vector<phi::DenseTensor>> PrepareData(
+    const std::string& kernel,
+    const std::vector<Tensor>& inputs,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel);
+
+paddle::optional<std::vector<phi::DenseTensor>> PrepareData(
+    const std::string& kernel,
+    const paddle::optional<std::vector<Tensor>>& inputs,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel);
 // Only support transfering place for SelectedRows
 std::shared_ptr<phi::SelectedRows> PrepareDataForSelectedRows(
     const Tensor& input,
@@ -302,6 +329,8 @@ PrepareDataForDistTensor(
 
 std::string ReshardDebugInfo(const phi::distributed::DistTensor& src_tensor,
                              const phi::distributed::TensorDistAttr& dist_attr);
+
+void mem_check(phi::DeviceContext* dev_ctx, const std::string& info);
 
 }  // namespace experimental
 }  // namespace paddle

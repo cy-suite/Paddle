@@ -1108,4 +1108,141 @@ PrepareDataForDistTensor(
   return paddle::none;
 }
 
+void mem_check(phi::DeviceContext* dev_ctx, const std::string& info) {
+  std::cout << info << "memcheck wait" << std::endl;
+  dev_ctx->Wait();
+  std::cout << info << "memcheck start memcpy" << std::endl;
+
+  size_t bytes = 256;
+  char* cuda_mem;
+  char* cpu_mem = new char[bytes + 1];
+
+  cudaMalloc(&cuda_mem, bytes + 1);
+  cudaMemset(&cuda_mem, 0, bytes + 1);
+  cudaMemcpyAsync(cpu_mem, cuda_mem, bytes, cudaMemcpyDeviceToHost);
+
+  cudaFree(cuda_mem);
+  delete[] cpu_mem;
+
+  std::cout << info << "memcheck finish memcpy" << std::endl;
+}
+
+std::shared_ptr<phi::DenseTensor> PrepareData(
+    const std::string& kernel,
+    const Tensor& input,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel) {
+  const auto& tensor_in = input.impl();
+  if (tensor_in) {
+    phi::DenseTensor& dense_tensor =
+        *static_cast<phi::DenseTensor*>(tensor_in.get());
+    if (dense_tensor.numel() > std::numeric_limits<int32_t>::max()) {
+      std::cout << kernel << " input to large, shape = " << dense_tensor.dims()
+                << std::endl;
+    }
+
+    if (!transform_flag.NeedTransform() || !dense_tensor.initialized() ||
+        (!NeedTransformPlace(
+             dense_tensor.place(), target_args_def.backend, transform_flag) &&
+         !NeedTransformDataType(
+             dense_tensor.dtype(), target_args_def.dtype, transform_flag) &&
+         !NeedTransformLayout(dense_tensor.layout(),
+                              target_args_def.layout,
+                              dense_tensor.place(),
+                              transform_flag) &&
+         !NeedTransform2Contiguous(is_stride_kernel,
+                                   dense_tensor.meta().is_contiguous()))) {
+      if (NeedTransform2Contiguous(is_stride_kernel,
+                                   dense_tensor.meta().is_contiguous()) &&
+          dense_tensor.initialized()) {
+        phi::DenseTensor out = dense_tensor;
+        out = Trans2Contiguous(out);
+        return std::make_shared<phi::DenseTensor>(std::move(out));
+      }
+      return std::static_pointer_cast<phi::DenseTensor>(tensor_in);
+    }
+    phi::DenseTensor out = TransformData(
+        dense_tensor, target_args_def, transform_flag, is_stride_kernel);
+    return std::make_shared<phi::DenseTensor>(std::move(out));
+  }
+  return nullptr;
+}
+
+paddle::optional<phi::DenseTensor> PrepareData(
+    const std::string& kernel,
+    const paddle::optional<Tensor>& input,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel) {
+  if (input) {
+    return {*PrepareData(
+        kernel, *input, target_args_def, transform_flag, is_stride_kernel)};
+  }
+  return paddle::none;
+}
+
+std::unique_ptr<std::vector<phi::DenseTensor>> PrepareData(
+    const std::string& kernel,
+    const std::vector<Tensor>& inputs,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel) {
+  auto pt_tensors = std::make_unique<std::vector<phi::DenseTensor>>();
+  pt_tensors->reserve(inputs.size());
+
+  for (const auto& input : inputs) {
+    const auto& tensor_in = input.impl();
+    auto dense_tensor = std::dynamic_pointer_cast<phi::DenseTensor>(tensor_in);
+    if (dense_tensor->numel() > std::numeric_limits<int32_t>::max()) {
+      std::cout << kernel << " input to large, shape = " << dense_tensor->dims()
+                << std::endl;
+    }
+    if (!transform_flag.NeedTransform() || !tensor_in->initialized() ||
+        (!NeedTransformPlace(
+             tensor_in->place(), target_args_def.backend, transform_flag) &&
+         !NeedTransformDataType(
+             tensor_in->dtype(), target_args_def.dtype, transform_flag) &&
+         !NeedTransformLayout(tensor_in->layout(),
+                              target_args_def.layout,
+                              tensor_in->place(),
+                              transform_flag) &&
+         !(dense_tensor &&
+           NeedTransform2Contiguous(is_stride_kernel,
+                                    dense_tensor->meta().is_contiguous())))) {
+      if (NeedTransform2Contiguous(is_stride_kernel,
+                                   dense_tensor->meta().is_contiguous()) &&
+          tensor_in->initialized()) {
+        phi::DenseTensor out =
+            *(static_cast<phi::DenseTensor*>(tensor_in.get()));
+        out = Trans2Contiguous(out);
+        pt_tensors->emplace_back(out);
+      } else {
+        pt_tensors->emplace_back(
+            *std::dynamic_pointer_cast<phi::DenseTensor>(tensor_in));
+      }
+    } else {
+      pt_tensors->emplace_back(
+          TransformData(*(static_cast<phi::DenseTensor*>(tensor_in.get())),
+                        target_args_def,
+                        transform_flag,
+                        is_stride_kernel));
+    }
+  }
+
+  return pt_tensors;
+}
+
+paddle::optional<std::vector<phi::DenseTensor>> PrepareData(
+    const std::string& kernel,
+    const paddle::optional<std::vector<Tensor>>& inputs,
+    const phi::TensorArgDef& target_args_def,
+    const TransformFlag& transform_flag,
+    bool is_stride_kernel) {
+  if (inputs) {
+    return {*PrepareData(
+        kernel, *inputs, target_args_def, transform_flag, is_stride_kernel)};
+  }
+  return paddle::none;
+}
 }  // namespace paddle::experimental
