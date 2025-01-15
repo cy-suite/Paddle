@@ -2749,6 +2749,137 @@ class TestRound_decimals2(TestRound_decimals1):
         self.decimals = -1
 
 
+class TestRoundComplex(TestRound):
+    def init_dtype(self):
+        self.dtype = np.complex64
+
+    def setUp(self):
+        super().setUp()
+        x_real = np.random.uniform(-1, 1, self.shape).astype(np.float32) * 100
+        x_imag = np.random.uniform(-1, 1, self.shape).astype(np.float32) * 100
+        x = x_real + 1j * x_imag
+        out = np.round(x, decimals=self.decimals)
+
+        self.inputs = {'X': x}
+        self.outputs = {'Out': out}
+        self.attrs = {'decimals': self.decimals}
+        self.convert_input_output()
+
+
+class TestRoundInt(TestRound):
+    def init_dtype(self):
+        self.dtype = np.int32
+
+    def setUp(self):
+        super().setUp()
+        x = np.random.randint(-100, 100, self.shape).astype(self.dtype)
+        out = np.round(x, decimals=self.decimals)
+
+        self.inputs = {'X': x}
+        self.outputs = {'Out': out}
+        self.attrs = {'decimals': self.decimals}
+        self.convert_input_output()
+
+
+class TestRoundComplex_ZeroDim(TestRoundComplex):
+    def init_shape(self):
+        self.shape = []
+
+
+class TestRoundInt_ZeroDim(TestRoundInt):
+    def init_shape(self):
+        self.shape = []
+
+
+class TestRoundInf(TestRound):
+    def setUp(self):
+        self.op_type = "round"
+        self.python_api = paddle.round
+        self.init_dtype()
+        self.init_shape()
+        self.init_decimals()
+
+        x = np.array(
+            [
+                np.inf,
+                -np.inf,
+                *(
+                    np.random.uniform(-1, 1, self.shape).astype(self.dtype)
+                    * 100
+                ),
+            ]
+        )
+        out = np.round(x, decimals=self.decimals)
+
+        self.inputs = {'X': OpTest.np_dtype_to_base_dtype(x)}
+        self.outputs = {'Out': out}
+        self.attrs = {'decimals': self.decimals}
+        self.convert_input_output()
+
+    def init_shape(self):
+        self.shape = [10]
+
+    def init_decimals(self):
+        self.decimals = 0
+
+    def test_check_output(self):
+        self.check_output(
+            check_pir=True,
+            check_pir_onednn=self.check_pir_onednn,
+            check_symbol_infer=False,
+        )
+
+
+class TestRoundNaN(unittest.TestCase):
+    def setUp(self):
+        self.op_type = "round"
+        self.python_api = paddle.round
+        self.init_dtype()
+        self.init_shape()
+        self.init_decimals()
+        self.x = np.array(
+            [
+                np.nan,
+                -np.nan,
+                *(
+                    np.random.uniform(-1, 1, self.shape).astype(self.dtype)
+                    * 100
+                ),
+            ]
+        )
+        self.out = np.round(self.x, decimals=self.decimals)
+
+    def init_dtype(self):
+        self.dtype = 'float64'
+
+    def init_shape(self):
+        self.shape = [10]
+
+    def init_decimals(self):
+        self.decimals = 0
+
+    def test_round_nan(self):
+        paddle.enable_static()
+        if core.is_compiled_with_cuda():
+            place = core.CUDAPlace(0)
+        else:
+            place = core.CPUPlace()
+        with paddle.static.program_guard(paddle.static.Program()):
+            input = paddle.static.data(
+                name="input", shape=self.x.shape, dtype=self.x.dtype
+            )
+            output = self.python_api(input, decimals=self.decimals)
+
+            exe = paddle.static.Executor(place)
+            (result,) = exe.run(feed={'input': self.x}, fetch_list=[output])
+            nan_mask = np.isnan(self.out)
+            np.testing.assert_array_equal(result[nan_mask], self.out[nan_mask])
+            np.testing.assert_array_equal(
+                result[~nan_mask], self.out[~nan_mask]
+            )
+        paddle.disable_static()
+
+
 class TestRelu(TestActivation):
     def setUp(self):
         self.op_type = "relu"
