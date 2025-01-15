@@ -82,7 +82,7 @@ void BroadcastTensorsKernel(const Context& ctx,
   auto out_tensors = out;
   size_t num_ins = in_tensors.size();
 
-  PADDLE_ENFORCE_GT(
+  PADDLE_ENFORCE_GE(
       num_ins,
       1,
       errors::InvalidArgument(
@@ -96,7 +96,12 @@ void BroadcastTensorsKernel(const Context& ctx,
                         "outputs,but received: %d inputs v.s %d outputs",
                         num_ins,
                         out_tensors.size()));
-
+  if (num_ins == 1) {
+    out_tensors[0]->Resize(in_tensors[0]->dims());
+    phi::Copy(
+        ctx, *in_tensors[0], in_tensors[0]->place(), false, out_tensors[0]);
+    return;
+  }
   // Eigen has no support for dynamic ranked tensor
   // Thus we perform static expansion for each possible ranks
   for (size_t i = 0; i < num_ins; i++) {

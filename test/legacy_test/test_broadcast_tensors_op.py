@@ -100,6 +100,13 @@ def gen_empty_tensors_test(dtype, is_bfloat16=False):
     return make_inputs_outputs(input_shapes, dtype, is_bfloat16)
 
 
+def gen_one_tensors_test(dtype, is_bfloat16=False):
+    input_shapes = [
+        (2, 60, 1),
+    ]
+    return make_inputs_outputs(input_shapes, dtype, is_bfloat16)
+
+
 class TestCPUBroadcastTensorsOp(OpTest):
     def set_place(self):
         self.place = core.CPUPlace()
@@ -116,15 +123,23 @@ class TestCPUBroadcastTensorsOp(OpTest):
             gen_no_broadcast_test,
             gen_mixed_tensors_test,
             gen_empty_tensors_test,
+            gen_one_tensors_test,
         ]
         self.set_place()
         self.set_dtype()
         self.python_api = paddle.broadcast_tensors
 
+    def run_single_test(self, test_func, args):
+        self.inputs, self.outputs = self.test_gen_func_list[4](self.dtype)
+        self.python_out_sig = [
+            f"out{i}" for i in range(len(self.outputs["Out"]))
+        ]
+        test_func(**args)
+
     def run_dual_test(self, test_func, args):
         for gen_func in self.test_gen_func_list:
             self.inputs, self.outputs = gen_func(self.dtype)
-            if len(self.outputs["Out"]) < 3:
+            if len(self.outputs["Out"]) == 2:
                 self.python_out_sig = [
                     f"out{i}" for i in range(len(self.outputs["Out"]))
                 ]
@@ -144,6 +159,15 @@ class TestCPUBroadcastTensorsOp(OpTest):
         )
 
     def test_check_grad_normal(self):
+        self.run_single_test(
+            self.check_grad_with_place,
+            {
+                "place": self.place,
+                "inputs_to_check": ['x0'],
+                "output_names": ['out0'],
+                "check_pir": True,
+            },
+        )
         self.run_dual_test(
             self.check_grad_with_place,
             {
@@ -201,14 +225,24 @@ class TestBroadcastTensorsBF16Op(OpTest):
             gen_rank_diff_test,
             gen_no_broadcast_test,
             gen_mixed_tensors_test,
+            gen_one_tensors_test,
         ]
         self.python_api = paddle.broadcast_tensors
         self.place = core.CUDAPlace(0)
 
+    def run_single_test(self, test_func, args):
+        self.inputs, self.outputs = self.test_gen_func_list[3](
+            self.np_dtype, True
+        )
+        self.python_out_sig = [
+            f"out{i}" for i in range(len(self.outputs["Out"]))
+        ]
+        test_func(**args)
+
     def run_dual_test(self, test_func, args):
         for gen_func in self.test_gen_func_list:
             self.inputs, self.outputs = gen_func(self.np_dtype, True)
-            if len(self.outputs["Out"]) < 3:
+            if len(self.outputs["Out"]) == 2:
                 self.python_out_sig = [
                     f"out{i}" for i in range(len(self.outputs["Out"]))
                 ]
@@ -230,6 +264,16 @@ class TestBroadcastTensorsBF16Op(OpTest):
         )
 
     def test_check_grad_normal(self):
+        self.run_single_test(
+            self.check_grad_with_place,
+            {
+                "place": self.place,
+                "inputs_to_check": ['x0'],
+                "output_names": ['out0'],
+                "check_dygraph": False,
+                "check_pir": True,
+            },
+        )
         self.run_dual_test(
             self.check_grad_with_place,
             {
@@ -272,6 +316,13 @@ class TestBroadcastTensorsAPI(unittest.TestCase):
                 ]
                 paddle.broadcast_tensors(inputs)
 
+                single_input = [
+                    paddle.static.data(
+                        shape=[-1, 4, 1, 4, 1], dtype=self.dtype, name="x0"
+                    ),
+                ]
+                paddle.broadcast_tensors(single_input)
+
         def test_dynamic():
             paddle.disable_static()
             try:
@@ -294,6 +345,18 @@ class TestBroadcastTensorsAPI(unittest.TestCase):
                     ),
                 ]
                 paddle.broadcast_tensors(inputs)
+
+                single_input = [
+                    paddle.to_tensor(
+                        np.random.random([4, 1, 4, 1]).astype(self.dtype)
+                        if self.dtype == 'float32'
+                        else (
+                            np.random.random([4, 1, 4, 1])
+                            + 1j * np.random.random([4, 1, 4, 1])
+                        ).astype(self.dtype)
+                    ),
+                ]
+                paddle.broadcast_tensors(single_input)
             finally:
                 paddle.enable_static()
 
