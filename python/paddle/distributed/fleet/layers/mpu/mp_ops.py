@@ -139,21 +139,7 @@ def _c_concat(tensor, group=None):
     rank = group.rank
     nranks = group.nranks
 
-    if in_dynamic_mode():
-        return _legacy_C_ops.c_concat(
-            tensor,
-            'ring_id',
-            ring_id,
-            'use_calc_stream',
-            True,
-            'rank',
-            rank,
-            'nranks',
-            nranks,
-            'use_model_parallel',
-            True,
-        )
-    elif in_pir_mode():
+    if in_dynamic_mode() or in_pir_mode():
         return _C_ops.c_concat(tensor, rank, nranks, ring_id, True, True)
     else:
         op_type = 'c_concat'
