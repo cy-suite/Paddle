@@ -90,6 +90,21 @@ TuplePopOp TuplePushOp::tuple_pop_op() {
   return container_interface().tuple_pop_op();
 }
 
+void TuplePushOp::CacheGradOpSymbolicShape(
+    pir::InferSymbolicShapeContext *infer_context) {
+  const auto &x_shape = GetInputShape(infer_context, this->operation(), 0);
+  pir::InferSymbolicShapeCacheKey op_shape_info("cf.tuple_pop", {x_shape}, );
+
+  std::vector<symbol::ShapeOrDataDimExprs> pop_value_shape_list;
+  for (size_t index = 1; index < num_operands(); ++index) {
+    const auto &pop_value_shape =
+        GetGradVarShapeFromInput(infer_context, this->operation(), index);
+    pop_value_shape_list.emplace_back(pop_value_shape);
+  }
+  infer_context->SetOpInferSymbolicShapeCache(op_shape_info,
+                                              pop_value_shape_list);
+}
+
 void TuplePopOp::Build(Builder &builder,             // NOLINT
                        OperationArgument &argument,  // NOLINT
                        Value outlet) {
@@ -202,11 +217,10 @@ void StackCreateOp::VerifySig() {
 
 bool StackCreateOp::InferSymbolicShape(
     pir::InferSymbolicShapeContext *infer_context) {
-  const auto &null_shape_or_data =
-      symbol::ShapeOrDataDimExprs(symbol::NullShapeOrDataDimExpr());
-  infer_context->SetShapeOrDataForValue(result(0), null_shape_or_data);
-  infer_context->SetShapeOrDataForValue(result(1), null_shape_or_data);
-  infer_context->SetShapeOrDataForValue(result(2), null_shape_or_data);
+  symbol::DimExpr mark_symbol = infer_context->GetNextSymName();
+  infer_context->SetShapeOrDataForValue(result(0), mark_symbol);
+  infer_context->SetShapeOrDataForValue(result(1), mark_symbol);
+  infer_context->SetShapeOrDataForValue(result(2), mark_symbol);
   return true;
 }
 
