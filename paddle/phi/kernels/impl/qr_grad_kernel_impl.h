@@ -13,6 +13,7 @@
 // limitations under the License.
 #pragma once
 
+#include "paddle/phi/common/complex.h"
 #include "paddle/phi/core/dense_tensor.h"
 #include "paddle/phi/core/enforce.h"
 #include "paddle/phi/core/kernel_registry.h"
@@ -20,8 +21,10 @@
 #include "paddle/phi/infermeta/unary.h"
 #include "paddle/phi/kernels/complex_kernel.h"
 #include "paddle/phi/kernels/concat_kernel.h"
+#include "paddle/phi/kernels/diagonal_kernel.h"
 #include "paddle/phi/kernels/elementwise_add_kernel.h"
 #include "paddle/phi/kernels/elementwise_subtract_kernel.h"
+#include "paddle/phi/kernels/fill_diagonal_tensor_kernel.h"
 #include "paddle/phi/kernels/funcs/complex_functors.h"
 #include "paddle/phi/kernels/funcs/math_function.h"
 #include "paddle/phi/kernels/funcs/parse_qr_mode.h"
@@ -45,52 +48,13 @@ static DenseTensor Fill(const Context& ctx,
 }
 
 template <typename T, typename Context>
-void QrGradKernel(const Context& ctx,
-                  const DenseTensor& x,
-                  const DenseTensor& q,
-                  const DenseTensor& r,
-                  const DenseTensor& q_grad,
-                  const DenseTensor& r_grad,
-                  const std::string& mode,
-                  DenseTensor* x_grad) {
-  // Using alias names
-  const DenseTensor& A = x;
-  const DenseTensor& Q = q;
-  const DenseTensor& R = r;
-  const DenseTensor& dQ = q_grad;
-  const DenseTensor& dR = r_grad;
-  DenseTensor& dA = *x_grad;
-
-  ctx.template Alloc<phi::dtype::Real<T>>(&dA);
-  phi::funcs::SetConstant<Context, T>()(ctx, &dA, T(0));
-
-  bool compute_q, reduced;
-  std::tie(compute_q, reduced) = phi::funcs::ParseQrMode(mode);
-  if (!compute_q) {
-    PADDLE_THROW(errors::InvalidArgument(
-        "The derivative of qr is not implemented when mode='%s'.", mode));
-  }
-
-  auto a_dims = A.dims();
-  int a_rank = a_dims.size();
-  int m = a_dims[a_rank - 2];
-  int n = a_dims[a_rank - 1];
-
-  if ((m > n) && (!reduced)) {
-    PADDLE_THROW(errors::InvalidArgument(
-        "The derivative of qr is not implemented when mode='complete' and "
-        "%d > %d.",
-        m,
-        n));
-  }
-
-  // m >= n case
-  auto m_gt_n_case = [](const Context& ctx,
-                        const DenseTensor& dQ,
-                        const DenseTensor& dR,
-                        const DenseTensor& A UNUSED,
-                        const DenseTensor& Q,
-                        const DenseTensor& R) -> DenseTensor {
+struct m_gt_n_case {
+  DenseTensor operator()(const Context& ctx,
+                         const DenseTensor& dQ,
+                         const DenseTensor& dR,
+                         const DenseTensor& A UNUSED,
+                         const DenseTensor& Q,
+                         const DenseTensor& R) {
     // Hai-Jun Liao, Jin-Guo Liu, Lei Wang, Tao Xiang (2019). Differentiable
     // Programming Tensor Networks.
     // https://arxiv.org/abs/1903.09650 Section 3. QR factorization
@@ -114,11 +78,12 @@ void QrGradKernel(const Context& ctx,
     }
 
     DenseTensor M_tmp1 = Subtract<T, Context>(ctx, R_term, Q_term);
+    DenseTensor M;
 
     // Compute M = (tril(M) + tril(M).mH()) * 0.5 Identity
     DenseTensor M_tril_0 = TrilTriu<T, Context>(ctx, M_tmp1, 0, true);
     DenseTensor M_tril_1 = TrilTriu<T, Context>(ctx, M_tmp1, -1, true);
-    DenseTensor M = Add<T, Context>(
+    M = Add<T, Context>(
         ctx, M_tril_0, TransposeLast2Dim<T, Context>(ctx, M_tril_1));
 
     DenseTensor rhs_term;
@@ -139,10 +104,137 @@ void QrGradKernel(const Context& ctx,
         /*unitriangular=*/false);
 
     return TransposeLast2Dim<T, Context>(ctx, dA);
-  };
+  }
+};
+
+template <typename T, typename Context>
+struct m_gt_n_case<phi::dtype::complex<T>, Context> {
+  DenseTensor operator()(const Context& ctx,
+                         const DenseTensor& dQ,
+                         const DenseTensor& dR,
+                         const DenseTensor& A UNUSED,
+                         const DenseTensor& Q,
+                         const DenseTensor& R) {
+    // https://arxiv.org/pdf/2009.10071
+
+    // dR^H
+    DenseTensor R_term;
+    if (dR.initialized()) {
+      R_term = Matmul<phi::dtype::complex<T>, Context>(
+          ctx, R, TransposeLast2Dim<phi::dtype::complex<T>, Context>(ctx, dR));
+    } else {
+      R_term = Fill<phi::dtype::complex<T>, Context>(
+          ctx, common::vectorize<int>(R.dims()), 0);
+    }
+
+    // dQ^H * Q
+    DenseTensor Q_term;
+    if (dQ.initialized()) {
+      Q_term = Matmul<phi::dtype::complex<T>, Context>(
+          ctx, TransposeLast2Dim<phi::dtype::complex<T>, Context>(ctx, dQ), Q);
+    } else {
+      Q_term = Fill<phi::dtype::complex<T>, Context>(
+          ctx, common::vectorize<int>(R.dims()), 0);
+    }
+
+    DenseTensor M_tmp =
+        Subtract<phi::dtype::complex<T>, Context>(ctx, R_term, Q_term);
+    DenseTensor M;
+
+    DenseTensor M_tril_tmp =
+        TrilTriu<phi::dtype::complex<T>, Context>(ctx, M_tmp, -1, true);
+    DenseTensor M_tril_tmp_conj =
+        Conj<phi::dtype::complex<T>, Context>(ctx, M_tril_tmp);
+    DenseTensor M_tril = Add<phi::dtype::complex<T>, Context>(
+        ctx,
+        M_tril_tmp,
+        TransposeLast2Dim<phi::dtype::complex<T>, Context>(ctx,
+                                                           M_tril_tmp_conj));
+
+    size_t rank = M_tmp.dims().size();
+    DenseTensor M_diag_tmp = Diagonal<phi::dtype::complex<T>, Context>(
+        ctx, M_tmp, 0, rank - 2, rank - 1);
+    DenseTensor M_diag_real =
+        Real<phi::dtype::complex<T>, Context>(ctx, M_diag_tmp);
+    DenseTensor M_diag_imag = Fill<phi::dtype::Real<T>, Context>(
+        ctx, common::vectorize<int>(M_diag_real.dims()), 0);
+
+    DenseTensor M_diag;
+    M_diag.Resize(M_diag_real.dims());
+    ctx.template Alloc<phi::dtype::complex<T>>(&M_diag);
+    phi::ComplexKernel<phi::dtype::Real<T>>(
+        ctx, M_diag_real, M_diag_imag, &M_diag);
+
+    M = FillDiagonalTensor<phi::dtype::complex<T>, Context>(
+        ctx, M_tril, M_diag, 0, rank - 2, rank - 1);
+
+    DenseTensor rhs_term;
+    if (dQ.initialized()) {
+      rhs_term = Add<phi::dtype::complex<T>, Context>(
+          ctx, dQ, Matmul<phi::dtype::complex<T>, Context>(ctx, Q, M));
+    } else {
+      rhs_term = Matmul<phi::dtype::complex<T>, Context>(ctx, Q, M);
+    }
+
+    // dA * R^H = rhs_term
+    auto dA = TriangularSolve<phi::dtype::complex<T>, Context>(
+        ctx,
+        TransposeLast2Dim<phi::dtype::complex<T>, Context>(
+            ctx,
+            Conj<phi::dtype::complex<T>, Context>(
+                ctx,
+                TransposeLast2Dim<phi::dtype::complex<T>, Context>(ctx, R))),
+        TransposeLast2Dim<phi::dtype::complex<T>, Context>(ctx, rhs_term),
+        /*upper=*/true,
+        /*transpose=*/false,
+        /*unitriangular=*/false);
+
+    return TransposeLast2Dim<phi::dtype::complex<T>, Context>(ctx, dA);
+  }
+};
+
+template <typename T, typename Context>
+void QrGradKernel(const Context& ctx,
+                  const DenseTensor& x,
+                  const DenseTensor& q,
+                  const DenseTensor& r,
+                  const DenseTensor& q_grad,
+                  const DenseTensor& r_grad,
+                  const std::string& mode,
+                  DenseTensor* x_grad) {
+  // Using alias names
+  const DenseTensor& A = x;
+  const DenseTensor& Q = q;
+  const DenseTensor& R = r;
+  const DenseTensor& dQ = q_grad;
+  const DenseTensor& dR = r_grad;
+  DenseTensor& dA = *x_grad;
+
+  ctx.template Alloc<T>(&dA);
+  phi::funcs::SetConstant<Context, T>()(ctx, &dA, T(0));
+
+  bool compute_q, reduced;
+  std::tie(compute_q, reduced) = phi::funcs::ParseQrMode(mode);
+  if (!compute_q) {
+    PADDLE_THROW(errors::InvalidArgument(
+        "The derivative of qr is not implemented when mode='%s'.", mode));
+  }
+
+  auto a_dims = A.dims();
+  int a_rank = a_dims.size();
+  int m = a_dims[a_rank - 2];
+  int n = a_dims[a_rank - 1];
+
+  if ((m > n) && (!reduced)) {
+    PADDLE_THROW(errors::InvalidArgument(
+        "The derivative of qr is not implemented when mode='complete' and "
+        "%d > %d.",
+        m,
+        n));
+  }
 
   if (m >= n) {
-    auto dA_tmp = m_gt_n_case(ctx, dQ, dR, A, Q, R);
+    auto dA_tmp = m_gt_n_case<T, Context>()(ctx, dQ, dR, A, Q, R);
     phi::Copy(ctx, dA_tmp, dA.place(), false, &dA);
   } else {
     // If m < n for input matrices A, we partition A = [X|Y] and R = [U|V]
@@ -167,7 +259,7 @@ void QrGradKernel(const Context& ctx,
     if (dQ.initialized()) {
       dQ_prime = Add<T, Context>(ctx, dQ_prime, dQ);
     }
-    dX = m_gt_n_case(ctx, dQ_prime, dR_tmp, A, Q, U);
+    dX = m_gt_n_case<T, Context>()(ctx, dQ_prime, dR_tmp, A, Q, U);
     dY = Matmul<T, Context>(ctx, Q, dV);
     // Concatenate dX and dY to get dA.
     auto dA_tmp = Concat<T, Context>(ctx, {&dX, &dY}, -1);

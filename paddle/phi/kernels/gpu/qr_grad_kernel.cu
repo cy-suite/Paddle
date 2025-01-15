@@ -16,5 +16,11 @@
 #include "paddle/phi/core/kernel_registry.h"
 #include "paddle/phi/kernels/impl/qr_grad_kernel_impl.h"
 
-PD_REGISTER_KERNEL(qr_grad, GPU, ALL_LAYOUT, phi::QrGradKernel, float, double) {
-}
+PD_REGISTER_KERNEL(qr_grad,
+                   GPU,
+                   ALL_LAYOUT,
+                   phi::QrGradKernel,
+                   float,
+                   double,
+                   phi::dtype::complex<float>,
+                   phi::dtype::complex<double>) {}
