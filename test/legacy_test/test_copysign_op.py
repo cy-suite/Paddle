@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import unittest
 
 import numpy as np
@@ -116,43 +117,52 @@ class TestCopySignAPI(unittest.TestCase):
         self.y = np.random.randn(20, 6).astype('float64')
 
     def place_init(self):
-        self.place = (
-            paddle.CUDAPlace(0)
-            if paddle.is_compiled_with_cuda()
-            else paddle.CPUPlace()
-        )
+        self.place = []
+        if (
+            os.environ.get('FLAGS_CI_both_cpu_and_gpu', 'False').lower()
+            in ['1', 'true', 'on']
+            or not core.is_compiled_with_cuda()
+        ):
+            self.place.append(paddle.CPUPlace())
+        if core.is_compiled_with_cuda():
+            self.place.append(paddle.CUDAPlace(0))
 
     def test_static_api(self):
         paddle.enable_static()
-        with paddle.static.program_guard(paddle.static.Program()):
-            x = paddle.static.data(
-                name='x', shape=self.x.shape, dtype=self.x.dtype
-            )
-            if isinstance(self.y, (float, int)):
-                y = self.y
-            else:
-                y = paddle.static.data(
-                    name='y', shape=self.y.shape, dtype=self.x.dtype
-                )
-            out = paddle.copysign(x, y)
-            exe = paddle.static.Executor(self.place)
-            if isinstance(self.y, (float, int)):
-                res = exe.run(
-                    paddle.static.default_main_program(),
-                    feed={"x": self.x},
-                    fetch_list=[out],
-                )
-            else:
-                res = exe.run(
-                    paddle.static.default_main_program(),
-                    feed={"x": self.x, "y": self.y},
-                    fetch_list=[out],
-                )
 
-            out_ref = ref_copysign(self.x, self.y)
-            np.testing.assert_allclose(out_ref, res[0])
-            out_ref_dtype = out_ref.dtype
-            np.testing.assert_equal((out_ref_dtype == res[0].dtype), True)
+        def run(place):
+            with paddle.static.program_guard(paddle.static.Program()):
+                x = paddle.static.data(
+                    name='x', shape=self.x.shape, dtype=self.x.dtype
+                )
+                if isinstance(self.y, (float, int)):
+                    y = self.y
+                else:
+                    y = paddle.static.data(
+                        name='y', shape=self.y.shape, dtype=self.x.dtype
+                    )
+                out = paddle.copysign(x, y)
+                exe = paddle.static.Executor(place)
+                if isinstance(self.y, (float, int)):
+                    res = exe.run(
+                        paddle.static.default_main_program(),
+                        feed={"x": self.x},
+                        fetch_list=[out],
+                    )
+                else:
+                    res = exe.run(
+                        paddle.static.default_main_program(),
+                        feed={"x": self.x, "y": self.y},
+                        fetch_list=[out],
+                    )
+
+                out_ref = ref_copysign(self.x, self.y)
+                np.testing.assert_allclose(out_ref, res[0])
+                out_ref_dtype = out_ref.dtype
+                np.testing.assert_equal((out_ref_dtype == res[0].dtype), True)
+
+        for place in self.place:
+            run(place)
         paddle.disable_static()
 
     def test_dygraph_api(self):
@@ -298,6 +308,102 @@ class TestCopySignBroadcastCase3(TestCopySignAPI):
         dtype = np.float16
         self.x = (np.random.randn(4, 5) * 10).astype(dtype)
         self.y = (np.random.randn(3, 4, 5) * 10).astype(dtype)
+
+
+class TestCopySignZeroDimCase3(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的张量，y 是一个形状匹配的张量
+        self.x = np.zeros(shape=(0, 4, 5)).astype(dtype)
+        self.y = (np.random.randn(0, 4, 5) * 10).astype(dtype)
+
+
+class TestCopySignZeroDimCase4(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 和 y 均为 0-size 张量，但形状不同
+        self.x = np.zeros(shape=(0, 1, 5)).astype(dtype)
+        self.y = np.zeros(shape=(0, 3, 5)).astype(dtype)
+
+
+class TestCopySignZeroDimCase5(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的张量，y 是形状为 (0,) 的张量
+        self.x = np.zeros(shape=(0, 1)).astype(dtype)
+        self.y = np.zeros(shape=(0,)).astype(dtype)
+
+
+class TestCopySignZeroDimCase6(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的张量，y 是形状为 (1, 0) 的张量
+        self.x = np.zeros(shape=(0,)).astype(dtype)
+        self.y = np.zeros(shape=(1, 0)).astype(dtype)
+
+
+class TestCopySignZeroDimCase7(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的张量，y 是形状为 (1, 3, 0) 的张量
+        self.x = np.zeros(shape=(0,)).astype(dtype)
+        self.y = np.zeros(shape=(1, 3, 0)).astype(dtype)
+
+
+class TestCopySignZeroDimCase8(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是形状为 (1, 0) 的张量，y 是 0-size 的张量
+        self.x = np.zeros(shape=(1, 0)).astype(dtype)
+        self.y = np.zeros(shape=(0,)).astype(dtype)
+
+
+class TestCopySignZeroDimCase9(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的张量，y 是形状为 (0, 1) 的张量
+        self.x = np.zeros(shape=(0,)).astype(dtype)
+        self.y = np.zeros(shape=(0, 1)).astype(dtype)
+
+
+class TestCopySignZeroDimCase10(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的二维张量，y 是形状为 (1, 1, 0, 1) 的张量
+        self.x = np.zeros(shape=(0, 0)).astype(dtype)
+        self.y = np.zeros(shape=(1, 1, 0, 1)).astype(dtype)
+
+
+class TestCopySignZeroDimCase11(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是形状为 (1, 1, 0, 1) 的张量，y 是 0-size 的二维张量
+        self.x = np.zeros(shape=(1, 1, 0, 1)).astype(dtype)
+        self.y = np.zeros(shape=(0, 0)).astype(dtype)
+
+
+class TestCopySignZeroDimCase12(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是形状为 (1, 1, 0, 1) 的张量，y 是形状为 (0, 0, 0) 的张量
+        self.x = np.zeros(shape=(1, 1, 0, 1)).astype(dtype)
+        self.y = np.zeros(shape=(0, 0, 0)).astype(dtype)
+
+
+class TestCopySignZeroDimCase13(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是形状为 (0, 1, 0, 0, 0) 的张量，y 是 0-size 的张量
+        self.x = np.zeros(shape=(0, 1, 0, 0, 0)).astype(dtype)
+        self.y = np.zeros(shape=(0,)).astype(dtype)
+
+
+class TestCopySignZeroDimCase14(TestCopySignAPI):
+    def input_init(self):
+        dtype = np.float16
+        # x 是 0-size 的张量，y 是形状为 (0, 1, 0, 0, 0) 的张量
+        self.x = np.zeros(shape=(0,)).astype(dtype)
+        self.y = np.zeros(shape=(0, 1, 0, 0, 0)).astype(dtype)
 
 
 if __name__ == "__main__":
