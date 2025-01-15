@@ -170,7 +170,6 @@ class VocabParallelEmbedding(paddle.nn.Layer):
             output = mp_ops._mp_allreduce(
                 output_parallel,
                 group=self.model_parallel_group,
-                use_calc_stream=True,
                 use_model_parallel=True,
             )
         else:
@@ -715,7 +714,6 @@ class RowParallelLinear(paddle.nn.Layer):
                 output = mp_ops._mp_allreduce(
                     output_parallel,
                     group=self.model_parallel_group,
-                    use_calc_stream=True,
                     use_model_parallel=True,
                     skip_c_identity_dynamic=self.mp_skip_c_identity,
                 )
@@ -726,7 +724,6 @@ class RowParallelLinear(paddle.nn.Layer):
                 output_ = mp_ops._mp_allreduce(
                     output_parallel,
                     group=self.model_parallel_group,
-                    use_calc_stream=True,
                     use_model_parallel=True,
                     skip_c_identity_dynamic=self.mp_skip_c_identity,
                 )
