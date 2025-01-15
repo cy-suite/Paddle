@@ -158,6 +158,52 @@ void TuplePopOp::VerifyRegion() {
   VLOG(4) << "End Verifying for TuplePopOp.";
 }
 
+bool TuplePushOp::InferSymbolicShape(
+    pir::InferSymbolicShapeContext *infer_context) {
+  const auto &stack_create_op = operand_source(0).defining_op<StackCreateOp>();
+  PADDLE_ENFORCE_EQ((stack_create_op != nullptr),
+                    true,
+                    common::errors::InvalidArgument(
+                        "In cf.tuple_push, can not get the stack_create_op to "
+                        "set shape of cf.tuple_pop result, please check if the "
+                        "program has been segment."));
+  // Using an outlet to temporarily store the ShapeOrData of the output of
+  // tuple_pop op
+  const Value &outlet = stack_create_op.result(2);
+  symbol::TensorListShapeOrDataDimExprs outlet_list;
+  for (size_t index = 1; index < num_operands(); ++index) {
+    symbol::ShapeOrDataDimExprs pushed_shape_data =
+        infer_context->GetShapeOrDataForValue(operand_source(index));
+    std::vector<symbol::DimExpr> shape = pushed_shape_data.shape();
+    symbol::TensorShapeOrDataDimExprs out_shape_data;
+    if (!pushed_shape_data.data().has_value()) {
+      out_shape_data = symbol::TensorShapeOrDataDimExprs(shape);
+    } else {
+      std::vector<symbol::DimExpr> data = pushed_shape_data.data().value();
+      out_shape_data = symbol::TensorShapeOrDataDimExprs(shape, data);
+    }
+    outlet_list.push_back(out_shape_data);
+  }
+  infer_context->SetShapeOrDataForValue(outlet, outlet_list);
+  return true;
+}
+
+bool TuplePopOp::InferSymbolicShape(
+    pir::InferSymbolicShapeContext *infer_context) {
+  const auto &outlet_list =
+      infer_context->GetShapeOrDataForValue(this->outlet())
+          .dyn_cast<symbol::TensorListShapeOrDataDimExprs>();
+  PADDLE_ENFORCE_EQ(
+      outlet_list.size(),
+      this->num_results(),
+      common::errors::InvalidArgument("The quantity temporarily stored must be "
+                                      "equal to the actual output quantity."));
+  for (size_t index = 0; index < outlet_list.size(); ++index) {
+    infer_context->SetShapeOrDataForValue(result(index), outlet_list.at(index));
+  }
+  return true;
+}
+
 void StackCreateOp::Build(Builder &builder, OperationArgument &argument) {
   auto stack_type = StackType::get(builder.ir_context());
   auto inlet_type = InletType::get(builder.ir_context());
