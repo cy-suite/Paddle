@@ -132,11 +132,18 @@ class ReduceCommonOpPattern : public pir::OpRewritePattern<OpType> {
       return false;
     }
 
-    if constexpr (std::is_same_v<OpType, paddle::dialect::MeanOp> ||
+    if constexpr (std::is_same_v<OpType, paddle::dialect::AllOp> ||
                   std::is_same_v<OpType, paddle::dialect::AnyOp> ||
                   std::is_same_v<OpType, paddle::dialect::AllOp>) {
       if (!op->HasAttribute("axis")) {
         VLOG(3) << "The axis attribute does not exist";
+        return false;
+      }
+    } else {
+      pir::Value axis = op.operand_source(1);
+      auto op = axis.defining_op();
+      if (op->name() == "pd_op.data") {
+        VLOG(3) << "pir::value axis is currently not supported";
         return false;
       }
     }
