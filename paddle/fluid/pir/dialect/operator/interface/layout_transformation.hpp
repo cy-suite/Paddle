@@ -121,6 +121,10 @@ OVERLOAD_REWRITE_BY_LAYOUT(Conv2dOp);
 class Conv2dTransposeOp;
 OVERLOAD_PREFER_LAYOUT(Conv2dTransposeOp);
 
+class DepthwiseConv2dOp;
+OVERLOAD_PREFER_LAYOUT(DepthwiseConv2dOp);
+OVERLOAD_CAN_BE_MODIFIED(DepthwiseConv2dOp);
+
 class GroupNormOp;
 OVERLOAD_REWRITE_BY_LAYOUT(GroupNormOp);
 OVERLOAD_RELEVANT_INPUTS(GroupNormOp);

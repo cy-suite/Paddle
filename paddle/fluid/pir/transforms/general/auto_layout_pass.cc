@@ -57,6 +57,7 @@ class AutoLayoutPass : public pir::Pass {
     pm.AddPass(pir::CreateAutoLayoutSimplifyPass());
     pm.Run(program_clone.get());
 
+    // std::cout << "IR before auto layout pass: \n" << *program << std::endl;
     if (IsNeedAllTranspose(program_clone->module_op())) {
       pir::PassManager pm_(::pir::IrContext::Instance(), 2);
       pm_.AddPass(pir::CreateAutoLayoutInsertPass({"pd_op.fused_conv2d_add_act",
@@ -72,6 +73,7 @@ class AutoLayoutPass : public pir::Pass {
       pm_.AddPass(pir::CreateAutoLayoutSimplifyPass());
       pm_.Run(program);
     }
+    // std::cout << "IR after auto layout pass: \n" << *program << std::endl;
   }
 
   // Check whether all conv2d, conv2d_transpose and fused_conv2d_add_act ops
@@ -107,10 +109,11 @@ class AutoLayoutPass : public pir::Pass {
         }
       }
     }
-    VLOG(4) << "end IsNeedAllTranspose"
-            << " conv_count_: " << conv_count_
-            << " transpose_count_: " << transpose_count_;
-    return conv_count_ >= transpose_count_;
+    // std::cout << "end IsNeedAllTranspose"
+    //         << " conv_count_: " << conv_count_
+    //         << " transpose_count_: " << transpose_count_<<std::endl;
+    // return true;
+    return conv_count_ > transpose_count_;
   }
 
  private:

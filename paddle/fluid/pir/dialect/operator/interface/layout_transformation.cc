@@ -167,6 +167,37 @@ void RewriteByLayoutImpl<Conv2dOp>(pir::Operation* op,
 }
 
 template <>
+bool CanBeModifiedImpl<DepthwiseConv2dOp>(pir::Operation* op) {
+  return false;
+}
+
+template <>
+common::DataLayout PreferLayoutImpl<DepthwiseConv2dOp>(pir::Operation* op) {
+  auto data_format_attr = op->attribute<pir::StrAttribute>("data_format");
+  if (!data_format_attr) {
+    PADDLE_THROW(common::errors::InvalidArgument(
+        "op (%s) should have attribute `data_format`, but got %s",
+        op,
+        data_format_attr));
+  }
+
+  auto concrete_op = op->dyn_cast<DepthwiseConv2dOp>();
+  if (auto in = concrete_op.input()) {
+    if (auto in_type = in.type()) {
+      if (in_type.isa<DenseTensorType>()) {
+        if (auto tensor_type = in_type.dyn_cast<DenseTensorType>()) {
+          if (tensor_type.dtype().isa<pir::Float16Type>()) {
+            return common::DataLayout::NHWC;
+          }
+        }
+      }
+    }
+  }
+
+  return common::StringToDataLayout(data_format_attr.AsString());
+}
+
+template <>
 common::DataLayout PreferLayoutImpl<FusedConv2dAddActOp>(pir::Operation* op) {
   auto data_format_attr = op->attribute<pir::StrAttribute>("data_format");
   if (!data_format_attr) {
