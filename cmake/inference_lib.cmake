@@ -440,6 +440,11 @@ copy(
   SRCS ${PADDLE_SOURCE_DIR}/paddle/fluid/pir/utils/general_functions.h
   DSTS ${PADDLE_INFERENCE_INSTALL_DIR}/paddle/include/paddle/pir/utils/)
 
+copy(
+  inference_lib_dist
+  SRCS ${PADDLE_SOURCE_DIR}/paddle/fluid/pir/utils/sub_graph_detector.h
+  DSTS ${PADDLE_INFERENCE_INSTALL_DIR}/paddle/include/paddle/pir/utils/)
+
 # the include path of paddle needs to be changed to adapt to inference api path
 add_custom_command(
   TARGET inference_lib_dist

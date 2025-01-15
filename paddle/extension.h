@@ -36,6 +36,7 @@ limitations under the License. */
 // pir&pass headers
 #include "paddle/fluid/pir/drr/include/drr_pattern_base.h"
 #include "paddle/fluid/pir/utils/general_functions.h"
+#include "paddle/fluid/pir/utils/sub_graph_detector.h"
 #include "paddle/pir/include/core/operation.h"
 #include "paddle/pir/include/core/type.h"
 #include "paddle/pir/include/core/value.h"

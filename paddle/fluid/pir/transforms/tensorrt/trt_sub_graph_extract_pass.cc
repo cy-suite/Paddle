@@ -28,7 +28,7 @@
 #include "paddle/pir/include/pass/pass.h"
 #include "paddle/pir/include/pass/pass_registry.h"
 
-#include "paddle/fluid/pir/transforms/sub_graph_detector.h"
+#include "paddle/fluid/pir/utils/sub_graph_detector.h"
 
 COMMON_DECLARE_int32(trt_min_group_size);
 
