@@ -17,9 +17,7 @@ from paddle.common_ops_import import check_variable_and_dtype
 from paddle.framework import LayerHelper, in_dynamic_mode
 
 
-def global_scatter(
-    x, local_count, global_count, group=None, use_calc_stream=True
-):
+def global_scatter(x, local_count, global_count, group=None):
     """
     The global_scatter operator distributes the data of x to n_expert * world_size experts according to local_count,
     and then receives data according to global_count. The expert refers to a user-defined expert network,
@@ -61,7 +59,6 @@ def global_scatter(
         global_count (Tensor): Tensor which have n_expert * world_size elements that indicates
             how many data needed to be received. The tensor data type should be int64.
         group (Group, optional): The group instance return by new_group or None for global default group. Default: None.
-        use_calc_stream (bool, optional): Wether to use calculation stream (True) or communication stream. Default: True.
 
     Returns:
         out (Tensor): The data received from all experts.
@@ -114,8 +111,6 @@ def global_scatter(
             x,
             local_count,
             global_count,
-            'use_calc_stream',
-            use_calc_stream,
             'ring_id',
             ring_id,
         )
@@ -145,14 +140,14 @@ def global_scatter(
                 'global_count': [global_count],
             },
             outputs={'Out': [out]},
-            attrs={'ring_id': ring_id, 'use_calc_stream': use_calc_stream},
+            attrs={
+                'ring_id': ring_id,
+            },
         )
         return out
 
 
-def global_gather(
-    x, local_count, global_count, group=None, use_calc_stream=True
-):
+def global_gather(x, local_count, global_count, group=None):
     """
     The global_gather operator gathers the data of x into n_expert * world_size experts according to global_count, and then receives data according to local_count.
     The expert refers to a user-defined expert network, n_expert refers to the number of expert networks owned by each card, and world_size refers to the number of graphics cards running the network.
@@ -186,7 +181,6 @@ def global_gather(
         global_count (Tensor): Tensor which have n_expert * world_size elements that indicates
             how many data needed to be sent. Tensor data type should be int64.
         group (Group, optional): The group instance return by new_group or None for global default group. Default: None.
-        use_calc_stream (bool, optional): Wether to use calculation stream (True) or communication stream. Default: True.
 
     Returns:
         out (Tensor): The data received from all experts.
@@ -239,8 +233,6 @@ def global_gather(
             x,
             local_count,
             global_count,
-            'use_calc_stream',
-            use_calc_stream,
             'ring_id',
             ring_id,
         )
@@ -273,7 +265,6 @@ def global_gather(
             outputs={'Out': [out]},
             attrs={
                 'ring_id': group,
-                'use_calc_stream': use_calc_stream,
             },
         )
         return out
