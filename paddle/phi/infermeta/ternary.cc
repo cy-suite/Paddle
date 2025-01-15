@@ -1312,6 +1312,130 @@ void LinspaceInferMeta(const MetaTensor& start,
   LinspaceRawInferMeta(start, stop, number, out);
 }
 
+void LuSolveInferMeta(const MetaTensor& x,
+                      const MetaTensor& lu,
+                      const MetaTensor& pivots,
+                      const std::string& trans,
+                      MetaTensor* out) {
+  auto x_dims = x.dims();
+  auto lu_dims = lu.dims();
+  auto pivots_dims = pivots.dims();
+
+  // Ensure x and lu are at least 2D.
+  PADDLE_ENFORCE_GE(lu_dims.size(),
+                    2,
+                    phi::errors::InvalidArgument(
+                        "The input 'lu' must have at least 2 dimensions. "
+                        "Received lu rank = %d.",
+                        lu_dims.size()));
+
+  PADDLE_ENFORCE_GE(x_dims.size(),
+                    2,
+                    phi::errors::InvalidArgument(
+                        "The input 'x' must have at least 2 dimensions. "
+                        "Received x rank = %d.",
+                        x_dims.size()));
+
+  // Ensure x and lu have the same rank.
+  PADDLE_ENFORCE_EQ(
+      x_dims.size(),
+      lu_dims.size(),
+      phi::errors::InvalidArgument("x and lu must have the same rank. "
+                                   "Received x rank = %d, lu rank = %d.",
+                                   x_dims.size(),
+                                   lu_dims.size()));
+
+  int batch_ndims = static_cast<int>(lu_dims.size() - 2);
+
+  // Validate batch dimensions between x and lu.
+  for (int i = 0; i < batch_ndims; ++i) {
+    if (x_dims[i] != -1 && lu_dims[i] != -1) {
+      PADDLE_ENFORCE_EQ(x_dims[i],
+                        lu_dims[i],
+                        phi::errors::InvalidArgument(
+                            "Batch dimension %d of x and lu must be the same. "
+                            "Received x.dim[%d] = %d, lu.dim[%d] = %d.",
+                            i,
+                            i,
+                            x_dims[i],
+                            i,
+                            lu_dims[i]));
+    }
+  }
+
+  // Ensure lu is a square matrix for its last two dimensions.
+  int64_t m = lu_dims[lu_dims.size() - 2];
+  int64_t n = lu_dims[lu_dims.size() - 1];
+  if (m != -1 && n != -1) {
+    PADDLE_ENFORCE_EQ(
+        m,
+        n,
+        phi::errors::InvalidArgument("lu's last two dimensions must form a "
+                                     "square matrix. Received (%d, %d).",
+                                     m,
+                                     n));
+  }
+
+  // Ensure x matches the size of lu in the second to last dimension.
+  int64_t x_m = x_dims[x_dims.size() - 2];
+  if (x_m != -1 && m != -1) {
+    PADDLE_ENFORCE_EQ(x_m,
+                      m,
+                      phi::errors::InvalidArgument(
+                          "x's M dimension must match lu's M dimension. "
+                          "Received x_m = %d, lu_m = %d.",
+                          x_m,
+                          m));
+  }
+
+  // Validate pivots shape: pivots should be [*, m].
+  PADDLE_ENFORCE_GE(
+      pivots_dims.size(),
+      1,
+      phi::errors::InvalidArgument("pivots must have at least 1 dimension."));
+
+  PADDLE_ENFORCE_EQ(
+      static_cast<int>(pivots_dims.size()),
+      batch_ndims + 1,
+      phi::errors::InvalidArgument("pivots rank must be batch_ndims + 1. "
+                                   "Received pivots rank = %d, expected = %d",
+                                   pivots_dims.size(),
+                                   batch_ndims + 1));
+
+  for (int i = 0; i < batch_ndims; ++i) {
+    if (pivots_dims[i] != -1 && lu_dims[i] != -1) {
+      PADDLE_ENFORCE_EQ(
+          pivots_dims[i],
+          lu_dims[i],
+          phi::errors::InvalidArgument(
+              "Batch dimension %d of pivots and lu must be the same. "
+              "Received pivots.dim[%d] = %d, lu.dim[%d] = %d.",
+              i,
+              i,
+              pivots_dims[i],
+              i,
+              lu_dims[i]));
+    }
+  }
+
+  int64_t pivots_len = pivots_dims[pivots_dims.size() - 1];
+  if (pivots_len != -1 && m != -1) {
+    PADDLE_ENFORCE_EQ(
+        pivots_len,
+        m,
+        phi::errors::InvalidArgument("pivots' last dimension must match the "
+                                     "size of the lu matrix dimension M. "
+                                     "Received pivots_len = %d, expected = %d.",
+                                     pivots_len,
+                                     m));
+  }
+
+  // Set output shape and properties.
+  out->set_dims(x_dims);
+  out->set_dtype(x.dtype());
+  out->set_layout(x.layout());
+}
+
 void MatchMatrixTensorInferMeta(const MetaTensor& x,
                                 const MetaTensor& y,
                                 const MetaTensor& w,

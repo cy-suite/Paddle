@@ -109,6 +109,8 @@ CUSOLVER_ROUTINE_EACH_R1(DECLARE_DYNAMIC_LOAD_CUSOLVER_WRAP)
 
 #if CUDA_VERSION >= 9020
 #define CUSOLVER_ROUTINE_EACH_R2(__macro)      \
+  __macro(cusolverDnSgetrs);              \
+  __macro(cusolverDnDgetrs);              \
   __macro(cusolverDnCreateSyevjInfo);          \
   __macro(cusolverDnSsyevj_bufferSize);        \
   __macro(cusolverDnDsyevj_bufferSize);        \
