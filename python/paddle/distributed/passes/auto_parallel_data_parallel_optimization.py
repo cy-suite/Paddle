@@ -280,10 +280,8 @@ class DataParallelOptimizationPass(PassBase):
         # comm wait calc to finish
         for idx, op in reversed(list(enumerate(block.ops))):
             if is_data_parallel_reduce_op(op):
-                assert op.has_attr('use_calc_stream')
                 assert op.has_attr('ring_id')
 
-                op._set_attr('use_calc_stream', False)
                 ring_id = op.attr("ring_id")
                 block._insert_op_without_sync(
                     idx,
