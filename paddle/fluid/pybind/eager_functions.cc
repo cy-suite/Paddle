@@ -72,7 +72,13 @@ typedef SSIZE_T ssize_t;
 #include "paddle/phi/core/distributed/auto_parallel/reshard/reshard_utils.h"
 #include "paddle/phi/infermeta/spmd_rules/rules.h"
 #endif
-
+#include "paddle/phi/kernels/contiguous_kernel.h"
+#include "paddle/phi/kernels/transfer_layout_kernel.h"
+#include "paddle/phi/backends/all_context.h"
+#include "paddle/phi/core/kernel_registry.h"
+#include "paddle/phi/kernels/fill_kernel.h"
+#include "paddle/phi/kernels/strided_copy_kernel.h"
+#include "paddle/phi/kernels/contiguous_kernel.h"
 COMMON_DECLARE_string(tensor_operants_mode);
 
 using egr::ConvertAllInputsToDistTensor;
@@ -1376,6 +1382,74 @@ PyObject* eager__is_run_in_backward(PyObject* self,
   EAGER_CATCH_AND_THROW_RETURN_NULL
 }
 
+template <typename Context>
+void mem_check(const Context& dev_ctx, const std::string& info) {
+  std::cout << info << " memcheck wait" << std::endl;
+  dev_ctx.Wait();
+  std::cout << info << " memcheck start memcpy" << std::endl;
+
+  size_t bytes = 256;
+  char* cuda_mem;
+  char* cpu_mem = new char[bytes+1];
+
+  cudaMalloc(&cuda_mem, bytes+1);
+  cudaMemset(&cuda_mem, 0, bytes+1);
+  cudaMemcpyAsync(cpu_mem, cuda_mem, bytes, cudaMemcpyDeviceToHost);
+
+  cudaFree(cuda_mem);
+  delete[] cpu_mem;
+
+  std::cout << info << " memcheck finish memcpy" << std::endl;
+}
+
+template <typename Context>
+void test(const Context& dev_ctx) {
+  std::cout << "test...." << std::endl;
+  mem_check(dev_ctx, "lala 1 ");
+  phi::DenseTensor tmp;
+  tmp.Resize(common::make_ddim({1, 221184, 8, 8, 2}));
+  tmp.set_strides(phi::DenseTensorMeta::calc_strides(tmp.dims()));
+  mem_check(dev_ctx, "lala 2 ");
+  PD_VISIT_ALL_TYPES(tmp.dtype(), "test", ([&] {
+                       phi::FillKernel<data_t, Context>(
+                           dev_ctx, tmp, 0, &tmp);
+                     }));
+  phi::DenseTensor tmp2;
+  tmp2.Resize(common::make_ddim({1, 221184, 8, 8, 2}));
+  tmp2.set_strides(phi::DenseTensorMeta::calc_strides(tmp2.dims()));
+  mem_check(dev_ctx, "lala 3 ");
+  PD_VISIT_ALL_TYPES(tmp2.dtype(), "test", ([&] {
+                       phi::FillKernel<data_t, Context>(
+                           dev_ctx, tmp2, 0, &tmp2);
+                     }));
+  mem_check(dev_ctx, "lala 4 ");
+  PD_VISIT_ALL_TYPES(tmp2.dtype(), "SliceGradStridedKernel", ([&] {
+                       phi::StridedCopyKernel<data_t, Context>(
+                           dev_ctx,
+                           tmp,
+                           common::vectorize<int64_t>(tmp.dims()),
+                           common::vectorize<int64_t>(tmp.strides()),
+                           tmp2.offset(),
+                           &tmp2);
+                     }));
+  mem_check(dev_ctx, "lala 5 ");
+}
+
+PyObject* eager_stride_test(PyObject* self,
+                                    PyObject* args,
+                                    PyObject* kwargs) {
+  EAGER_TRY
+
+  std::cout << " eager_stride_test start " << std::endl;
+  auto& pool = paddle::platform::DeviceContextPool::Instance();
+  phi::GPUContext* dev_ctx = static_cast<phi::GPUContext*>(pool.Get(phi::GPUPlace(0)));
+  test<phi::GPUContext>(*dev_ctx);
+  std::cout << " eager_stride_test finish" << std::endl;
+
+  RETURN_PY_NONE
+  EAGER_CATCH_AND_THROW_RETURN_NULL
+}
+
 PyMethodDef variable_functions[] = {  // NOLINT
     // TODO(jiabin): Remove scale when we have final state tests
     {"scale",
@@ -1451,6 +1525,10 @@ PyMethodDef variable_functions[] = {  // NOLINT
      nullptr},
     {"_is_run_in_backward",
      (PyCFunction)(void (*)())eager__is_run_in_backward,
+     METH_VARARGS | METH_KEYWORDS,
+     nullptr},
+    {"stride_test",
+     (PyCFunction)(void (*)())eager_stride_test,
      METH_VARARGS | METH_KEYWORDS,
      nullptr},
 /**sparse functions**/
