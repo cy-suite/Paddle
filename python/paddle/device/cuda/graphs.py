@@ -332,95 +332,6 @@ def get_cuda_graph_sections(program):
     return cuda_graph_sections, sections_idx, is_test
 
 
-def replace_cuda_graph_section(
-    ins_and_outs,
-    section_program,
-    section_idx,
-    origin_program,
-    cuda_graph_section,
-    order,
-    is_test,
-):
-    """
-    Use section_program and ins_and_outs to initialize a run_program_op,
-    and replace the section_idx marks ops in the origin program.
-
-    :param ins_and_outs: list, the logical ins and outs of the section program
-    :param section_program: framework.Program, the partial program need to run under cuda graph
-    :param section_idx: list, the idx need to be removed from origin program
-    :param origin_program: framework.Program, the origin program
-    :param cuda_graph_section: list, the ops in current sections, used to get the mode, memory pool id and is_test
-    :param order: int, the order of current section, used to create unique cuda graph var
-    :param is_test: bool, the program is running under is_test or not
-    :return: no return
-    """
-    ins = ins_and_outs[0]
-    outs = ins_and_outs[1]
-    insert_idx = section_idx[0]
-    origin_block = origin_program.global_block()
-
-    for idx in reversed(section_idx):
-        # remove all cuda graph marked ops from origin block
-        origin_block._remove_op(idx, sync=False)
-
-    mode = None
-    memory_pool_id = None
-
-    for op in cuda_graph_section:
-        # find the cuda graph mode and memory pool id, determine is test or not
-        if op._cuda_graph_attr is not None:
-            attrs = op._cuda_graph_attr.split(';')
-            mode = attrs[0]
-            memory_pool_id = int(attrs[1])
-            break
-
-    assert (
-        mode is not None and memory_pool_id is not None
-    ), "mode and memory pool id should be specified in cuda graph attr"
-
-    cuda_graph_var = origin_block.create_var(
-        name="cuda_graph_" + str(order),
-        type=core.VarDesc.VarType.RAW,
-        persistable=True,
-        stop_gradient=True,
-    )
-
-    # not used for the run_program_op, just needed by the op, but won't be used
-    out_scope_var = origin_block.create_var(
-        name="program_out_scope_" + str(order),
-        type=core.VarDesc.VarType.STEP_SCOPES,
-        persistable=True,
-        stop_gradient=True,
-    )
-
-    program_id = paddle.utils._hash_with_id(section_program, ins_and_outs)
-
-    # insert the run_program_op into the block
-    origin_block._insert_op(
-        insert_idx,
-        type='run_program',
-        inputs={'X': ins},
-        outputs={
-            'Out': outs,
-            'OutScope': out_scope_var,
-            'CUDAGraph': cuda_graph_var,
-        },
-        attrs={
-            'global_block': section_program.global_block(),
-            'start_op_index': 0,
-            'end_op_index': len(section_program.global_block().ops),
-            'is_test': is_test,
-            'program_id': program_id,
-            'cuda_graph_capture_mode': mode,
-            'cuda_graph_pool_id': memory_pool_id,
-            # Todo: now not support use interpretercore
-            'use_interpretorcore': False,
-            'forward_global_block': section_program.global_block(),
-            'backward_global_block': section_program.global_block(),
-        },
-    )
-
-
 def cuda_graph_transform(program):
     """
     replace the ops marked with cuda_graph_attr to run_program_op to use cuda graph
@@ -461,20 +372,6 @@ def cuda_graph_transform(program):
     assert len(section_programs) == len(
         cuda_graph_sections
     ), "the num of cuda graph sections should be equal with the num of new program"
-
-    # step 3: replace the ops in original program with run_program_op.
-    # Will remove all ops in the section from origin program, and use run_program_op to replace them.
-    for i in reversed(range(len(cuda_graph_sections))):
-        # carry out the replacement in reversed order, to keep the previous idx intact
-        replace_cuda_graph_section(
-            ins_and_outs[i],
-            section_programs[i],
-            sections_idx[i],
-            program,
-            cuda_graph_sections[i],
-            order=i,
-            is_test=is_test,
-        )
 
     # NOTE: user should hold these program, for now just return these program back to caller
     return section_programs
