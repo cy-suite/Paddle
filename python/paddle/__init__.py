@@ -1223,3 +1223,18 @@ __all__ = [
     'pi',
     'e',
 ]
+
+import os
+
+if os.environ.get("FLAGS_trace_api", "False") in [
+    'True',
+    '1',
+    'true',
+]:
+    from .api_tracer import start_api_tracer
+
+    api_path = os.environ.get("FLAGS_trace_api_api_path", "api.yaml")
+    save_config_path = os.environ.get(
+        "FLAGS_trace_api_save_config_path", "api_configs.txt"
+    )
+    start_api_tracer(api_path, save_config_path)
