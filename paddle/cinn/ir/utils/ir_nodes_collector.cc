@@ -178,6 +178,67 @@ std::set<Expr> CollectIRNodes(ir::LoweredFunc f,
   return CollectIRNodes(f->body, std::move(teller), uniq_target);
 }
 
+std::set<Expr> CollectIRNodes(ir::stmt::BlockRef block,
+                              std::function<bool(const Expr*)>&& teller,
+                              bool uniq_target) {
+  std::set<Expr> collect_nodes;
+  const auto& CollectInSubExpr = [&](const Expr& e) {
+    const auto& sub_expr_res =
+        CollectIRNodes(e, std::move(teller), uniq_target);
+    collect_nodes.insert(sub_expr_res.begin(), sub_expr_res.end());
+  };
+  const auto& CollectInSubExprArr = [&](const std::vector<Expr>& exprs) {
+    for (const auto& expr : exprs) {
+      CollectInSubExpr(expr);
+    }
+  };
+  const auto& CollectInStmt = [&](const stmt::StmtRef& stmt) {
+    if (stmt.isa<stmt::Let>()) {
+      const auto& let_stmt = stmt.as<stmt::Let>();
+      CollectInSubExpr(let_stmt->symbol());
+      if (let_stmt->body().defined()) {
+        CollectInSubExpr(let_stmt->body());
+      }
+    } else if (stmt.isa<stmt::Store>()) {
+      const auto& store_stmt = stmt.as<stmt::Store>();
+      CollectInSubExpr(store_stmt->tensor());
+      CollectInSubExpr(store_stmt->value());
+      CollectInSubExprArr(store_stmt->indices());
+    } else if (stmt.isa<stmt::Alloc>()) {
+      const auto& alloc_stmt = stmt.as<stmt::Alloc>();
+      CollectInSubExprArr(alloc_stmt->extents());
+      if (alloc_stmt->condition().defined()) {
+        CollectInSubExpr(alloc_stmt->condition());
+      }
+      if (alloc_stmt->body().defined()) {
+        CollectInSubExpr(alloc_stmt->body());
+      }
+    } else if (stmt.isa<stmt::Free>()) {
+      const auto& free_stmt = stmt.as<stmt::Free>();
+      CollectInSubExpr(free_stmt->destination());
+    } else if (stmt.isa<stmt::IfThenElse>()) {
+      const auto& if_stmt = stmt.as<stmt::IfThenElse>();
+      CollectInSubExpr(if_stmt->condition());
+    } else if (stmt.isa<stmt::For>()) {
+      const auto& for_stmt = stmt.as<stmt::For>();
+      CollectInSubExpr(for_stmt->min());
+      CollectInSubExpr(for_stmt->extent());
+    } else if (stmt.isa<stmt::Schedule>()) {
+      // Body is a BlockRef which will be visited automatically, do nothing
+      // here.
+    } else if (stmt.isa<stmt::Evaluate>()) {
+      const auto& evaluate_stmt = stmt.as<stmt::Evaluate>();
+      CollectInSubExpr(evaluate_stmt->value());
+    } else {
+      PADDLE_THROW(::common::errors::Fatal(
+          "Dead code. Stmt type %d is not supported to collect ir.",
+          stmt->stmt_type()));
+    }
+  };
+  stmt::Visit(block, CollectInStmt, [](const stmt::StmtRef& stmt) {});
+  return collect_nodes;
+}
+
 std::vector<Expr> CollectIRNodesInOrder(
     Expr expr, std::function<bool(const Expr*)>&& teller) {
   std::vector<Expr> exprs;

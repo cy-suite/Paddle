@@ -213,13 +213,15 @@ struct _LoweredFunc_ : public IrNode {
 
   //! Prepare the assumptions that a gpu axis should be less than its
   //! corresponding dim size, e.g. threadIdx.x < blockDim.x.
-  std::vector<Expr> PrepareAxisRangeAssumptions() const;
+  std::vector<ir::stmt::StmtRef> PrepareAxisRangeAssumptionStmts() const;
   std::vector<Expr> PrepareCreateTempBufferExprs() const;
   //! Prepare the expressions for `alloc_tmp_buffer_exprs`.
   std::vector<Expr> PrepareAllocTempBufferExprs() const;
+  std::vector<ir::stmt::StmtRef> PrepareAllocTempBufferStmts() const;
   std::vector<Expr> PrepareDeallocTempBufferExprs() const;
+  std::vector<ir::stmt::StmtRef> PrepareDeallocTempBufferStmts() const;
   std::vector<Expr> CudaPrepareAllocTempBufferExprs() const;
-  std::vector<Expr> CudaAliasVarExprs() const;
+  std::vector<ir::stmt::StmtRef> CudaAliasVarStmts() const;
   void PrepareBufferCastExprs(bool with_expr_gen_tensor = true);
   void PrepareCudaAxisInfoFromBody();
 

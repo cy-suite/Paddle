@@ -15,6 +15,7 @@
 #pragma once
 
 #include "paddle/cinn/ir/ir.h"
+#include "paddle/cinn/ir/stmt.h"
 
 namespace cinn {
 namespace ir {
@@ -27,6 +28,10 @@ std::set<Expr> CollectIRNodes(Expr x,
                               bool uniq_target = false);
 
 std::set<Expr> CollectIRNodes(ir::LoweredFunc f,
+                              std::function<bool(const Expr*)>&& teller,
+                              bool uniq_target = false);
+
+std::set<Expr> CollectIRNodes(ir::stmt::BlockRef block,
                               std::function<bool(const Expr*)>&& teller,
                               bool uniq_target = false);
 

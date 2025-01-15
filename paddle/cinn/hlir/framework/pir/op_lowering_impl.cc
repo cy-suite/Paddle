@@ -742,6 +742,8 @@ ir::LoweredFunc OpLowererImpl::GenerateInferShapeFunc(
                               group_func_args,
                               ir::Block::Make(ir_bodys),
                               {});
+  infer_shape_func->body_block =
+      ir::ConvertExprBlockToStmtBlock(infer_shape_func->body);
   return infer_shape_func;
 }
 ir::Expr OpLowererImpl::LowerX86(const OpLoweringGroupPtr& group,

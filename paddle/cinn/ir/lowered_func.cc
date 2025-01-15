@@ -151,8 +151,9 @@ void _LoweredFunc_::PrepareAllocOutputBufferExprs() {
   }
 }
 
-std::vector<Expr> _LoweredFunc_::PrepareAxisRangeAssumptions() const {
-  std::vector<Expr> assumption_exprs;
+std::vector<ir::stmt::StmtRef> _LoweredFunc_::PrepareAxisRangeAssumptionStmts()
+    const {
+  std::vector<ir::stmt::StmtRef> assumption_stmts;
 
   const auto AssumeAxisLT = [&](std::string axis, const Expr& dim_size) {
     if (!dim_size.defined()) {
@@ -167,7 +168,7 @@ std::vector<Expr> _LoweredFunc_::PrepareAxisRangeAssumptions() const {
                               {expr_lt},
                               {},
                               CallType::Intrinsic);
-    assumption_exprs.push_back(call_lt);
+    assumption_stmts.push_back(ir::stmt::Evaluate(call_lt));
   };
 
   AssumeAxisLT("blockIdx.x", cuda_axis_info.grid_dim(0));
@@ -177,7 +178,7 @@ std::vector<Expr> _LoweredFunc_::PrepareAxisRangeAssumptions() const {
   AssumeAxisLT("threadIdx.y", cuda_axis_info.block_dim(1));
   AssumeAxisLT("threadIdx.z", cuda_axis_info.block_dim(2));
 
-  return assumption_exprs;
+  return assumption_stmts;
 }
 
 std::vector<Expr> _LoweredFunc_::PrepareAllocTempBufferExprs() const {
@@ -191,11 +192,34 @@ std::vector<Expr> _LoweredFunc_::PrepareAllocTempBufferExprs() const {
   return alloc_temp_buffer_exprs;
 }
 
+std::vector<ir::stmt::StmtRef> _LoweredFunc_::PrepareAllocTempBufferStmts()
+    const {
+  std::vector<ir::stmt::StmtRef> alloc_temp_buffer_exprs;
+  for (auto& temp_buf : temp_bufs) {
+    if (!temp_buf->shape.empty() && temp_buf->type() != Void()) {
+      alloc_temp_buffer_exprs.push_back(ir::stmt::Alloc(
+          temp_buf, temp_buf->type(), temp_buf->shape, Expr(), Expr()));
+    }
+  }
+  return alloc_temp_buffer_exprs;
+}
+
 std::vector<Expr> _LoweredFunc_::PrepareDeallocTempBufferExprs() const {
   std::vector<Expr> dealloc_temp_buffer_exprs;
   for (auto& temp_buf : temp_bufs) {
     if (!temp_buf->shape.empty() && temp_buf->type() != Void()) {
       dealloc_temp_buffer_exprs.push_back(Free::Make(temp_buf));
+    }
+  }
+  return dealloc_temp_buffer_exprs;
+}
+
+std::vector<ir::stmt::StmtRef> _LoweredFunc_::PrepareDeallocTempBufferStmts()
+    const {
+  std::vector<ir::stmt::StmtRef> dealloc_temp_buffer_exprs;
+  for (auto& temp_buf : temp_bufs) {
+    if (!temp_buf->shape.empty() && temp_buf->type() != Void()) {
+      dealloc_temp_buffer_exprs.push_back(ir::stmt::Free(temp_buf));
     }
   }
   return dealloc_temp_buffer_exprs;
@@ -297,13 +321,13 @@ void _LoweredFunc_::PrepareBufferCastExprs(bool with_expr_gen_tensor) {
   }
 }
 
-std::vector<Expr> _LoweredFunc_::CudaAliasVarExprs() const {
+std::vector<ir::stmt::StmtRef> _LoweredFunc_::CudaAliasVarStmts() const {
   std::unordered_set<std::string> args_buffer;
   for (auto arg : args) {
     args_buffer.insert(arg.name());
   }
   // collect write.
-  std::vector<Expr> res;
+  std::vector<ir::stmt::StmtRef> res;
   auto write_teller = ir::ir_utils::CollectTensorNeedsWrite(&body);
 
   auto tensors = CollectAllTensorReference();
@@ -332,7 +356,7 @@ std::vector<Expr> _LoweredFunc_::CudaAliasVarExprs() const {
     Var variable = _Var_::Make(tensor->name, value_type);
     Var body = Var(tensor->buffer->name.substr(1), value_type);
 
-    auto let = Let::Make(variable, body);
+    auto let = ir::stmt::Let(variable, body);
 
     res.push_back(let);
   }
