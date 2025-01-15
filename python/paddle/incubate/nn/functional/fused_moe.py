@@ -12,23 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from paddle import _C_ops
 from paddle.base.layer_helper import LayerHelper
 from paddle.framework import in_dynamic_or_pir_mode
 
+if TYPE_CHECKING:
+    from paddle import Tensor
+
 
 def fused_moe(
-    x,
-    gate_weight,
-    ffn1_weight,
-    ffn2_weight,
-    ffn1_bias=None,
-    ffn1_scale=None,
-    ffn2_bias=None,
-    ffn2_scale=None,
-    quant_method="None",
-    moe_topk=2,
-    norm_topk_prob=True,
+    x: Tensor,
+    gate_weight: Tensor,
+    ffn1_weight: Tensor,
+    ffn2_weight: Tensor,
+    ffn1_bias: Tensor | None = None,
+    ffn1_scale: Tensor | None = None,
+    ffn2_bias: Tensor | None = None,
+    ffn2_scale: Tensor | None = None,
+    quant_method: str = "None",
+    moe_topk: int = 2,
+    norm_topk_prob: bool = True,
+    group_moe: bool = False,
 ):
     """
     Applies fused moe kernel.
@@ -46,6 +54,7 @@ def fused_moe(
         quant_method (string): Currently not supported.
         moe_topk (int): Select the top k experts for each token.
         norm_topk_prob (bool): Whether to normalize the topk probabilities.
+        group_moe (bool): Whether to use group moe.
 
     Returns:
         Tensor: the output Tensor.
@@ -84,6 +93,7 @@ def fused_moe(
             quant_method,
             moe_topk,
             norm_topk_prob,
+            group_moe,
         )
         return final_out
     else:
@@ -113,6 +123,7 @@ def fused_moe(
                 'quant_method': quant_method,
                 'moe_topk': moe_topk,
                 'norm_topk_prob': norm_topk_prob,
+                'group_moe': group_moe,
             },
         )
         return final_out

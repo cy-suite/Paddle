@@ -305,6 +305,157 @@ class TestFusedMoEOpNonNorm(TestFusedMoEOp):
     or paddle.device.cuda.get_device_capability()[0] < 8,
     "FusedMoe requires CUDA >= 11.2 and CUDA_ARCH >= 8",
 )
+class TestFusedGoupeMoEOp(TestFusedMoEOp):
+    def config(self):
+        super().config()
+        self.x_type = paddle.bfloat16
+        self.rtol = 1e-3
+        self.atol = 1e-3
+        self.norm_topk_prob = True
+        self.group_moe = True
+        self.num_expert = 48
+        self.top_k = 6
+
+    def GetMoeOut(self, tensor_x):
+        if self.quant_method != "None":
+            self.GetWintData()
+        paddle.disable_static(place=paddle.CUDAPlace(0))
+        fused_out = fused_moe(
+            tensor_x,
+            self.gate_weight,
+            self.bmm_w0,
+            self.bmm_w1,
+            self.bmm_b0,
+            None if self.quant_method == "None" else self.scale0,
+            self.bmm_b1,
+            None if self.quant_method == "None" else self.scale1,
+            self.quant_method,
+            self.top_k,
+            self.norm_topk_prob,
+            self.group_moe,
+        )
+        fused_out = fused_out.reshape([-1, self.d_model])
+        return fused_out
+
+    def GetBaselineOut(self, hidden_states):
+        # group moe
+        paddle.disable_static(place=paddle.CUDAPlace(0))
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        hidden_states = paddle.reshape(hidden_states, [-1, hidden_dim])
+
+        gate_out = self.gate(hidden_states).cast(paddle.float32)
+        group_size = self.num_expert // self.top_k
+        gate_out = gate_out.reshape([-1, self.top_k, group_size])
+        gate_out = F.softmax(gate_out)
+        max_prob = gate_out.max(-1, keepdim=True)  # [s, k, 1]
+        gate_out /= max_prob
+        gate_out = gate_out.reshape([0, -1])
+        max_prob = max_prob.squeeze(-1)
+
+        routing_weights, selected_experts = paddle.topk(
+            gate_out, self.top_k, axis=-1
+        )
+        # norm routing_weights
+        expert_scales_float = max_prob * routing_weights
+        expert_scales_float = expert_scales_float / paddle.clip(
+            expert_scales_float.sum(-1, keepdim=True), min=1e-12
+        )
+        routing_weights = expert_scales_float.cast(np.float32)
+
+        final_hidden_states = paddle.zeros_like(hidden_states)
+
+        # One hot encode the selected experts to create an expert mask
+        # this will be used to easily index which expert is going to be sollicitated
+        expert_mask = paddle.transpose(
+            F.one_hot(selected_experts, num_classes=self.num_expert), [2, 1, 0]
+        )
+
+        # Loop over all available experts in the model and perform the computation on each expert
+        for expert_idx in range(self.num_expert):
+            expert_layer = self.experts[expert_idx]
+            idx, top_x = paddle.where(expert_mask[expert_idx])
+
+            # Index the correct hidden states and compute the expert hidden state for
+            # the current expert. We need to make sure to multiply the output hidden
+            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+            current_state = paddle.index_select(
+                hidden_states, top_x, axis=0
+            ).reshape([-1, hidden_dim])
+            current_hidden_states = (
+                expert_layer(current_state, expert_idx)
+                * routing_weights[top_x, idx]
+            )
+            # Use scatter to accumulate the results
+            paddle.index_add_(
+                x=final_hidden_states,
+                index=top_x.squeeze(),
+                axis=0,
+                value=current_hidden_states.to(hidden_states.dtype),
+            )
+
+        final_hidden_states = paddle.reshape(
+            final_hidden_states, [batch_size * sequence_length, hidden_dim]
+        )
+        return final_hidden_states
+
+    def test_fused_moe_op_new(self):
+        ref_out = self.GetBaselineOut(self.tensor_x).cast(np.float32)
+        fused_moe_out = self.GetMoeOut(self.tensor_x).cast(np.float32)
+
+        np.testing.assert_allclose(
+            ref_out, fused_moe_out, rtol=self.rtol, atol=self.atol
+        )
+        print("success !!!")
+
+
+@unittest.skipIf(
+    not paddle.is_compiled_with_cuda()
+    or get_cuda_version() < 11030
+    or paddle.device.cuda.get_device_capability()[0] < 8,
+    "FusedMoe requires CUDA >= 11.2 and CUDA_ARCH >= 8",
+)
+class TestFusedGoupeMoEOpBf16(TestFusedGoupeMoEOp):
+    def config(self):
+        super().config()
+        self.x_type = paddle.bfloat16
+        self.rtol = 1e-2
+        self.atol = 1e-2
+
+
+@unittest.skipIf(
+    not paddle.is_compiled_with_cuda()
+    or get_cuda_version() < 11030
+    or paddle.device.cuda.get_device_capability()[0] < 8,
+    "FusedMoe requires CUDA >= 11.2 and CUDA_ARCH >= 8",
+)
+class TestFusedGoupeMoEOpWint8(TestFusedGoupeMoEOp):
+    def config(self):
+        super().config()
+        self.rtol = 1e-2
+        self.atol = 1e-2
+        self.quant_method = "weight_only_int8"
+
+
+@unittest.skipIf(
+    not paddle.is_compiled_with_cuda()
+    or get_cuda_version() < 11030
+    or paddle.device.cuda.get_device_capability()[0] < 8,
+    "FusedMoe requires CUDA >= 11.2 and CUDA_ARCH >= 8",
+)
+class TestFusedGoupeMoEOpWint4(TestFusedGoupeMoEOp):
+    def config(self):
+        super().config()
+        self.rtol = 1e-2
+        self.atol = 1e-2
+        self.quant_method = "weight_only_int4"
+
+
+@unittest.skipIf(
+    not paddle.is_compiled_with_cuda()
+    or get_cuda_version() < 11030
+    or paddle.device.cuda.get_device_capability()[0] < 8,
+    "FusedMoe requires CUDA >= 11.2 and CUDA_ARCH >= 8",
+)
 class TestFusedMoEOpStatic(OpTest):
     def setUp(self):
         self.config()

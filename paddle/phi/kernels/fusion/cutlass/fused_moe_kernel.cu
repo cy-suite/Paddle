@@ -55,6 +55,7 @@ void FusedMoeKernel(const Context& ctx,
                     const std::string& quant_method,
                     const int moe_topk,
                     const bool norm_topk_prob,
+                    const bool group_moe,
                     DenseTensor* out) {
   out->Resize(X.dims());
   auto* output_data = ctx.template Alloc<T>(out);
@@ -85,6 +86,7 @@ void FusedMoeKernel(const Context& ctx,
                          nullptr,
                          moe_topk,
                          norm_topk_prob,
+                         group_moe,
                          "ffn",
                          out);
 }

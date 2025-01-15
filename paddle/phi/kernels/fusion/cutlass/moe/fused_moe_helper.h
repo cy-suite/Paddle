@@ -133,6 +133,7 @@ class MoeHelper {
                   const DenseTensor *moe_token_type_ids,
                   const int moe_topk,
                   const bool norm_topk_prob,
+                  const bool group_moe,
                   const std::string moe_type,
                   DenseTensor *output) {
     auto *input_activations = X->data<T>();
@@ -169,8 +170,25 @@ class MoeHelper {
     const int num_experts = ffn1_dims[0];
     const int k = moe_topk;
 
-    VLOG(4) << "num_rows: " << num_rows << "   " << hidden_size << "   "
-            << inter_size << "    " << num_experts << "k " << k;
+    VLOG(4) << "[MoE Info] "
+            << "num_rows: " << num_rows << ", "
+            << "hidden_size: " << hidden_size << ", "
+            << "inter_size: " << inter_size << ", "
+            << "num_experts: " << num_experts << ", "
+            << "k: " << k << ", "
+            << "group_moe: " << std::boolalpha << group_moe;
+
+    if (group_moe == true) {
+      // Check if num_experts is divisible by moe_topk, else throw an error
+      PADDLE_ENFORCE_EQ(num_experts % moe_topk,
+                        0,
+                        common::errors::InvalidArgument(
+                            "The number of experts (num_experts) "
+                            "must be divisible by moe_topk. "
+                            "Got num_experts = %d and moe_topk = %d.",
+                            num_experts,
+                            moe_topk));
+    }
 
     DenseTensor gate_tensor = Empty<float>(ctx, {num_rows, num_experts});
     DenseTensor X_tensor = Empty<float>(ctx, {num_rows, hidden_size});
@@ -229,6 +247,14 @@ class MoeHelper {
     DenseTensor expert_scales_tensor_float = Empty<float>(ctx, {num_rows, k});
     float *expert_scales_float = expert_scales_tensor_float.data<float>();
 
+    float *softmax_max_prob = nullptr;
+    if (group_moe) {
+      DenseTensor softmax_max_prob_tensor = Empty<float>(ctx, {num_rows, k});
+      softmax_max_prob = softmax_max_prob_tensor.data<float>();
+      funcs::SetConstant<GPUContext, float> zero_float;
+      zero_float(ctx, &softmax_max_prob_tensor, false);
+    }
+
     DenseTensor fc1_out_tensor = Empty<T>(ctx, {num_rows * k, inter_size});
     T *fc1_out = fc1_out_tensor.data<T>();
 
@@ -266,9 +292,11 @@ class MoeHelper {
                                               softmax_out_,
                                               expert_for_source_row,
                                               source_rows_,
+                                              softmax_max_prob,
                                               num_rows,
                                               num_experts,
                                               k,
+                                              group_moe,
                                               ctx.stream());
 
     const int sorter_ws_size_bytes =
