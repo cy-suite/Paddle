@@ -2674,7 +2674,6 @@ All parameter, weight, gradient are variables in Paddle.
           [](phi::TensorArray &self, const phi::DenseTensor &t) {
             self.emplace_back();
             self.back().ShareDataWith(t);
-            self.back().set_lod(t.lod());
           },
           py::arg("tensor"),
           R"DOC(
