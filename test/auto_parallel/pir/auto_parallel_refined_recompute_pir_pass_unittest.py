@@ -79,8 +79,8 @@ class TestRefinedRecomputeLlamaAuto(TestRecomputeLlamaAuto):
         # check recompute op number
         assert bwd_rc_op_num_base == 0
         assert bwd_rc_op_num_0 == 288
-        assert bwd_rc_op_num_1 == 284
-        assert bwd_rc_op_num_2 == 280
+        assert bwd_rc_op_num_1 == 282
+        assert bwd_rc_op_num_2 == 276
 
         # memory check
         assert max_mem_reserved_0 < max_mem_reserved_1
@@ -90,6 +90,11 @@ class TestRefinedRecomputeLlamaAuto(TestRecomputeLlamaAuto):
         assert max_mem_allocated_0 < max_mem_allocated_1
         assert max_mem_allocated_1 < max_mem_allocated_2
         assert max_mem_allocated_2 < max_mem_allocated_base
+
+        assert (
+            max_mem_reserved_2 - max_mem_reserved_1
+            == max_mem_allocated_2 - max_mem_allocated_1
+        )
 
 
 if __name__ == '__main__':

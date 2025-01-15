@@ -15,6 +15,7 @@
 import logging
 
 import paddle
+import paddle.distributed as dist
 from paddle.base import core
 
 OpRole = core.op_proto_and_checker_maker.OpRole
@@ -118,11 +119,15 @@ class AutoParallelRecomputePIRPass(PassBase):
         # 3. Aggregate all segment information into a dictionary.
         # The key is the id of the segment, which is used to uniquely identify each segment.
         # The value is a list of indices of the segment OPs in `self.program_ops`.
+
+        # Start segment ID from 0.
+        segment_id_base = min(segment_beg.keys())
         segments = {}
         assert len(segment_beg.keys()) == len(segment_end.keys())
-        for segment_id, beg_id in segment_beg.items():
-            assert segment_id in segment_end.keys()
-            end_id = segment_end[segment_id]
+        for idx, beg_id in segment_beg.items():
+            assert idx in segment_end.keys()
+            segment_id = idx - segment_id_base
+            end_id = segment_end[idx]
             assert beg_id <= end_id
             segment = list(range(beg_id, end_id + 1))
             # 4. Remove the outgoing OPs from the segment, as these OPs
@@ -145,27 +150,20 @@ class AutoParallelRecomputePIRPass(PassBase):
         target_pattern,
         pre_len,
         main_len,
-        count,
-        max_count,
     ):
-        if count >= max_count:
-            return max_count
         if len(fetch_pattern) > len(target_pattern):
-            return count
+            return
         if self.get_op_name(op) != target_pattern[fetch_id]:
-            return count
+            return
         if fetch_id == len(target_pattern) - 1:
             for idx in range(pre_len, pre_len + main_len):
                 fetch_op = fetch_pattern[idx]
                 visit[fetch_op] = -1
-            refined_segment = list(set(visit.values()))
-            refined_segment.sort()
-            refined_segment = [idx for idx in refined_segment if idx != -1]
-            return count + 1
+            return
         for res_val in op.results():
             for user_op in res_val.all_used_ops():
                 fetch_pattern[fetch_id + 1] = user_op
-                count = self.match_pattern(
+                self.match_pattern(
                     op=user_op,
                     visit=visit,
                     fetch_id=fetch_id + 1,
@@ -173,10 +171,41 @@ class AutoParallelRecomputePIRPass(PassBase):
                     target_pattern=target_pattern,
                     pre_len=pre_len,
                     main_len=main_len,
-                    count=count,
-                    max_count=max_count,
                 )
-        return count
+        return
+
+    def get_need_refined_segment_ids(self, refined_num, segment_num):
+        hcg = dist.fleet.get_hybrid_communicate_group()
+        pp_size = hcg.get_pipe_parallel_world_size()
+        vp_size = self.get_attr("vpp_degree")
+        if refined_num == 0:
+            return []
+        if refined_num < 0 or refined_num > segment_num:
+            return list(range(segment_num))
+        # If `vp_size` == 1, it can not select model chunk for pp,
+        # so if `refined_num` > 0, it selects the all segments to skip recompute.
+        if pp_size == 1 or vp_size == 1:
+            return list(range(segment_num))
+        refined_ids = []
+        assert segment_num % (pp_size * vp_size) == 0, (
+            "segment_num must be divisible by pp_size * vp_size,"
+            f" but got segment_num: {segment_num}, pp_size: {pp_size}, vp_size: {vp_size}"
+        )
+        chunk_size = segment_num // (pp_size * vp_size)
+        chunk_list = [
+            list(range(i * chunk_size, (i + 1) * chunk_size))
+            for i in range(pp_size * vp_size)
+        ]
+
+        stage_chunk_list = [[] for _ in range(pp_size)]
+        for i in range(pp_size * vp_size):
+            stage_chunk_list[i % pp_size].append(chunk_list[i])
+
+        for i in range(pp_size):
+            for id_list in stage_chunk_list[i][-refined_num:]:
+                refined_ids += id_list
+
+        return list(set(refined_ids))
 
     def _apply_single_impl(self, main_program, startup_program, context=None):
         self.program_ops = list(main_program.global_block().ops)
@@ -195,23 +224,34 @@ class AutoParallelRecomputePIRPass(PassBase):
         for refined_ops_pattern in refined_ops_patterns:
             # 3.1 get the refined pattern information.
             # refined_ops_patterns = pre_ops + main_ops + suf_ops
-            # `main_ops` pattern: it does not participate in backward recomputation
-            #                     and needs to be removed from the segment.
+            # `main_ops` pattern: it does not participate in backward recomputation and needs to be removed
+            #                     from the segment.
             # `pre_ops` pattern: it serve only as markers and do require recomputation.
             # `suf_ops` pattern: it serve only as markers and do require recomputation.
-            # `num` : it limits the maximum number of `main_ops` patterns identified
-            #         within each segment. A value of -1 represents all patterns.
+            # `num` : it determines the number of times to bypass recomputation for the specified segment.
+            #         `-1` indicates no recomputation across all segments, maximizing memory usage.
+            #         `0` enforces recomputation at every stage, minimizing memory usage.
+            #         It can be set to any value within the range `[1, ..., segment_nums]`.
+            #         If `num` exceeds `segment_nums`, it will behave as if set to `-1`.
             num = int(refined_ops_pattern['num'])
-            num = num if num >= 0 else len(fwd_ops)
             main_ops = refined_ops_pattern['main_ops']
             pre_ops = refined_ops_pattern['pre_ops']
             suf_ops = refined_ops_pattern['suf_ops']
             pattern_ops = pre_ops + main_ops + suf_ops
 
-            for rc_id in segments.keys():
+            refined_ids = self.get_need_refined_segment_ids(num, len(segments))
+
+            for rc_id in range(1, num + 1):
                 # 3.2 Identify and mark the first 'num' patterns in each segment.
                 # The dictionary 'op_idx_map' has keys as OP information.
                 # If an OP belongs to a pattern, its value in the dictionary is marked as -1.
+                assert (
+                    rc_id in segments.keys()
+                ), f"segments ID {rc_id} not found in recompute pass segments."
+
+                if rc_id not in refined_ids:
+                    continue
+
                 op_idx_map = {
                     self.program_ops[idx]: idx for idx in segments[rc_id]
                 }
@@ -228,8 +268,6 @@ class AutoParallelRecomputePIRPass(PassBase):
                         target_pattern=pattern_ops,
                         pre_len=len(pre_ops),
                         main_len=len(main_ops),
-                        count=pattern_count,
-                        max_count=num,
                     )
                 # 3.3 Refined segment to exclude the specified pattern.
                 refined_segment = list(set(op_idx_map.values()))
@@ -275,6 +313,7 @@ class AutoParallelRecomputePIRPass(PassBase):
                     rc_op.erase_attr("fwd_recompute_id")
 
                 rc_op.set_int_attr("bwd_recompute_id", rc_id)
+                op.set_int_attr("fwd_recompute_id", rc_id)
 
                 # Updtate attributes.
                 if first_bwd_used_op.has_attr('op_role'):

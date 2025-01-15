@@ -819,6 +819,9 @@ class Engine:
         apply_mix2dist_pass(dist_program)
         if mode == "train" and self._strategy.recompute.enable:
             config = copy.deepcopy(self._strategy.recompute.to_dict())
+            pipeline_config = copy.deepcopy(self._strategy.pipeline.to_dict())
+            pipeline_config['pipeline_enable'] = pipeline_config.pop('enable')
+            config.update(pipeline_config)
             auto_parallel_recompute_pir_pass = new_pass(
                 "auto_parallel_recompute_pir", config
             )
