@@ -258,6 +258,19 @@ static CutlassGemmConfig estimate_best_config_from_occupancies(
         SplitKStyle::NO_SPLIT_K,
         1,
         5};
+  } else if (m >= 128 && sm == 80 && group_size <= 0 &&
+              std::find_if(candidate_configs.begin(),
+                          candidate_configs.end(),
+                          [](const CutlassGemmConfig& gemm_config) {
+                            return gemm_config.tile_config ==
+                                   CutlassTileConfig::
+                                       CtaShape128x128x64_WarpShape64x32x64;
+                          }) != candidate_configs.end()) {
+    best_config = CutlassGemmConfig{
+        CutlassTileConfig::CtaShape128x128x64_WarpShape64x32x64,
+        SplitKStyle::NO_SPLIT_K,
+        1,
+        5};
   } else {
     // Score will be [0, 1]. The objective is to minimize this score.
     // It represents the fraction of SM resources unused in the last wave.

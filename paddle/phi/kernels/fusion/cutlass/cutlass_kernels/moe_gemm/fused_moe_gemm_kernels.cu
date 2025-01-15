@@ -15,8 +15,6 @@
  */
 
 #include "paddle/phi/kernels/fusion/cutlass/cutlass_kernels/moe_gemm/fused_moe_gemm_kernels.h"
-#include "paddle/phi/common/bfloat16.h"
-#include "paddle/phi/common/datatype_traits.h"
 #include "paddle/phi/kernels/fusion/cutlass/cutlass_kernels/moe_gemm/fused_moe_gemm_kernels_template.h"
 
 namespace phi {

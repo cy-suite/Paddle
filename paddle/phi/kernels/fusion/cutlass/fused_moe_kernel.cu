@@ -24,16 +24,7 @@
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #pragma GCC diagnostic ignored "-Wunused-function"
 
-#include "cutlass/array.h"
-#include "cutlass/epilogue/thread/linear_combination.h"
-#include "cutlass/epilogue/thread/linear_combination_relu.h"
-#include "cutlass/gemm/device/gemm_grouped.h"
-#include "cutlass/gemm/gemm.h"
-#include "cutlass/gemm/kernel/default_gemm_grouped.h"
-#include "cutlass/numeric_conversion.h"
 #include "paddle/phi/backends/gpu/gpu_info.h"
-#include "paddle/phi/kernels/fusion/cutlass/cutlass_kernels/moe_gemm/fused_moe_cutlass_kernel.h"
-#include "paddle/phi/kernels/fusion/cutlass/cutlass_kernels/moe_gemm/fused_moe_gemm_kernels.h"
 #include "paddle/phi/kernels/fusion/cutlass/moe/fused_moe_helper.h"
 
 #pragma GCC diagnostic pop

@@ -27,8 +27,6 @@
 #include "paddle/phi/core/kernel_registry.h"
 #include "paddle/phi/kernels/funcs/elementwise_base.h"
 #include "paddle/phi/kernels/fusion/cutlass/moe/fused_moe_imp_op.h"
-#include "paddle/phi/kernels/impl/llm_int8_matmul_kernel_impl.h"
-#include "paddle/phi/kernels/reduce_sum_kernel.h"
 
 #include "cutlass/array.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
@@ -39,7 +37,6 @@
 #include "paddle/phi/kernels/fusion/cutlass/cutlass_kernels/moe_gemm/fused_moe_gemm_kernels.h"
 
 #include "cutlass/numeric_conversion.h"
-#include "paddle/phi/common/datatype_traits.h"
 #include "paddle/phi/kernels/funcs/math_cuda_utils.h"
 #include "paddle/phi/kernels/fusion/cutlass/moe/fused_moe_helper.h"
 // Ignore CUTLASS warnings about type punning
