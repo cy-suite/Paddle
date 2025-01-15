@@ -1114,35 +1114,6 @@ class SplitWithNumOpPattern
   }
 };
 
-class GreaterEqualOpPattern
-    : public pir::OpRewritePattern<paddle::dialect::GreaterEqualOp> {
- public:
-  using pir::OpRewritePattern<
-      paddle::dialect::GreaterEqualOp>::OpRewritePattern;
-  bool MatchAndRewrite(paddle::dialect::GreaterEqualOp op,
-                       pir::PatternRewriter &rewriter) const override {
-    if (op->HasAttribute(kCanRunTrtAttr) &&
-        op->attribute<pir::BoolAttribute>(kCanRunTrtAttr).data()) {
-      return false;
-    }
-#if IS_TRT_VERSION_LT(8400)
-    VLOG(3) << "GreaterEqualOp is not supported when TensorRT < 8.4";
-    return false;
-#else
-    pir::Value x = op.operand_source(0);
-    pir::Value y = op.operand_source(1);
-    auto x_dtype = pir::GetDataTypeFromValue(x);
-    auto y_dtype = pir::GetDataTypeFromValue(y);
-    if (x_dtype.isa<pir::BoolType>() || y_dtype.isa<pir::BoolType>()) {
-      VLOG(3) << "Greater_equal op do not support bool datatype";
-      return false;
-    }
-#endif
-    op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
-    return true;
-  }
-};
-
 class GreaterThanOpPattern
     : public pir::OpRewritePattern<paddle::dialect::GreaterThanOp> {
  public:
@@ -1228,6 +1199,36 @@ using LogicalOr_OpPattern =
     LogicalCommonOpPattern<paddle::dialect::LogicalOr_Op>;
 using LogicalAndOpPattern =
     LogicalCommonOpPattern<paddle::dialect::LogicalAndOp>;
+
+template <typename OpType>
+class ComparisonCommonOpPattern : public pir::OpRewritePattern<OpType> {
+ public:
+  using pir::OpRewritePattern<OpType>::OpRewritePattern;
+  bool MatchAndRewrite(OpType op,
+                       pir::PatternRewriter &rewriter) const override {
+    if (op->HasAttribute(kCanRunTrtAttr) &&
+        op->template attribute<pir::BoolAttribute>(kCanRunTrtAttr).data()) {
+      return false;
+    }
+    pir::Value x = op.operand_source(0);
+    pir::Value y = op.operand_source(1);
+    auto x_dtype = pir::GetDataTypeFromValue(x);
+    auto y_dtype = pir::GetDataTypeFromValue(y);
+    if (x_dtype.isa<pir::BoolType>() || y_dtype.isa<pir::BoolType>()) {
+      VLOG(3) << "ElementWiseOperation::kLESS/ElementWiseOperation::kGREATER "
+                 "do not support boolean datatype.";
+      return false;
+    }
+    op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
+    return true;
+  }
+};
+using LessEqualOpPattern =
+    ComparisonCommonOpPattern<paddle::dialect::LessEqualOp>;
+using LessEqual_OpPattern =
+    ComparisonCommonOpPattern<paddle::dialect::LessEqual_Op>;
+using GreaterEqualOpPattern =
+    ComparisonCommonOpPattern<paddle::dialect::GreaterEqualOp>;
 
 class MulticlassNms3OpPattern
     : public pir::OpRewritePattern<paddle::dialect::MulticlassNms3Op> {
@@ -2368,6 +2369,8 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ps.Add(std::make_unique<SplitWithNumOpPattern>(context));
     ps.Add(std::make_unique<GreaterEqualOpPattern>(context));
     ps.Add(std::make_unique<GreaterThanOpPattern>(context));
+    ps.Add(std::make_unique<LessEqualOpPattern>(context));
+    ps.Add(std::make_unique<LessEqual_OpPattern>(context));
     ps.Add(std::make_unique<LessThanOpPattern>(context));
     ps.Add(std::make_unique<MultiplyOpPattern>(context));
     ps.Add(std::make_unique<SubtractOpPattern>(context));
