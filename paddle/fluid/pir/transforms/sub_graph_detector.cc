@@ -656,8 +656,13 @@ std::unordered_set<pir::Operation*> GetUpstreamOpsAfterPosition(
     }
     return false;
   };
+  std::cout << "GetUpstreamOpsAfterPosition op_name: " << op->name()
+            << "op_id: " << op->id() << std::endl;
   std::vector<pir::Value> op_inputs = GetUsedExternalValue(*op);
   for (auto value : op_inputs) {
+    if (op->id() == 39867) {
+      std::cout << " iterate values" << std::endl;
+    }
     if (!value || !value.defining_op()) continue;
     pir::Operation* defining_op = value.defining_op();
     if (visited_ops->count(defining_op)) continue;
@@ -681,6 +686,8 @@ void MoveUpstreamOpBeforeGroup(const GroupOpsVec& group_ops,
     std::set<pir::Operation*, IncrementalOrder> ops_set;
     std::unordered_set<pir::Operation*> visited_ops;
     for (auto& op : group_ops) {
+      std::cout << "GetUpstreamOpsAfterPosition ======= op_name: " << op->name()
+                << "op_id: " << op->id() << std::endl;
       auto upstream_ops =
           GetUpstreamOpsAfterPosition(insert_point_op, block, op, &visited_ops);
       ops_set.insert(upstream_ops.begin(), upstream_ops.end());
@@ -690,9 +697,13 @@ void MoveUpstreamOpBeforeGroup(const GroupOpsVec& group_ops,
 
   for (auto& op : moved_ops) {
     if (op == insert_point_op) continue;
-    VLOG(4) << "Move " << op->id() << " " << op->name() << " before "
-            << insert_point_op->id() << " " << insert_point_op->name();
     op->MoveTo(block, insert_point_op->operator Block::Iterator());
+    if (group_ops.size() == 51) {
+      VLOG(0) << "Move " << op->id() << " " << op->name() << " before "
+              << insert_point_op->id() << " " << insert_point_op->name();
+      std::cout << "Program after MoveTo: \n"
+                << *(block->parent_program()) << std::endl;
+    }
   }
 }
 
@@ -700,6 +711,9 @@ pir::Operation* FindInsertPoint(const GroupOpsVec& group_ops,
                                 const std::vector<pir::Value>& outputs) {
   // Regard last op as insert position if there are no downstream ops between in
   // group_ops.
+  if (group_ops.size() == 51) {
+    VLOG(0) << "FindInsertPoint...";
+  }
   pir::Operation* first_op = group_ops.front();
   pir::Operation* insert_point_op = group_ops.back();
   auto order_info =
@@ -713,7 +727,11 @@ pir::Operation* FindInsertPoint(const GroupOpsVec& group_ops,
     }
     return map;
   }();
-
+  if (group_ops.size() == 51) {
+    VLOG(0) << " first_op_id: " << first_op->id() << " " << first_op->name();
+    VLOG(0) << " insert_point_op_id: " << insert_point_op->id() << " "
+            << insert_point_op->name();
+  }
   for (auto* op : group_ops) {
     if (order_info.at(op) > order_info.at(insert_point_op)) {
       insert_point_op = op;
@@ -722,7 +740,12 @@ pir::Operation* FindInsertPoint(const GroupOpsVec& group_ops,
       first_op = op;
     }
   }
-
+  if (group_ops.size() == 51) {
+    VLOG(0) << " update first_op_id: " << first_op->id() << " "
+            << first_op->name();
+    VLOG(0) << " update insert_point_op_id: " << insert_point_op->id() << " "
+            << insert_point_op->name();
+  }
   auto begin = first_op->operator Block::ConstIterator();
   auto end = ++(insert_point_op->operator Block::ConstIterator());
   const std::unordered_set<pir::Value> outputs_set(outputs.begin(),
@@ -763,6 +786,13 @@ void ReplaceWithGroupOp(pir::Block* block,
 
   // step 1: Analysis and insert group op before insert_point.
   auto* insert_point = FindInsertPoint(group_ops, outputs);
+  if (group_ops.size() == 51) {
+    VLOG(0) << "Insert point: " << insert_point->id() << " "
+            << insert_point->name();
+    for (auto& op : group_ops) {
+      VLOG(0) << "GroupOp: " << op->id() << " " << op->name() << std::endl;
+    }
+  }
   MoveUpstreamOpBeforeGroup(group_ops, block, insert_point);
   builder.set_insertion_point(insert_point);
   VLOG(6) << "Insert GroupOp after " << insert_point->name();

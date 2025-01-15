@@ -866,6 +866,15 @@ class DygraphFunctionGeneratorBase(FunctionGeneratorBase):
 
         self.forward_apis_dict = forward_apis_dict
         self.grad_api_contents = grad_api_contents
+        self.no_backward = False
+        if grad_api_contents is None:
+            self.no_backward = True
+
+        self.use_forward_input = False
+        self.use_forward_output = False
+        self.use_no_forward = True
+        self.use_forward_input_and_output = False
+        self.use_forward_input_or_output = False
 
         # Raw Contents
         self.backward_forward_str = ""
@@ -1113,6 +1122,12 @@ class DygraphFunctionGeneratorBase(FunctionGeneratorBase):
             else:
                 # TensorWrapper Input
                 if backward_input_name in forward_inputs_position_map:
+                    self.use_no_forward = False
+                    self.use_forward_input = True
+                    self.use_forward_input_or_output = True
+                    if self.use_forward_output:
+                        self.use_forward_input_and_output = True
+
                     tensor_wrapper_type = forward_inputs_position_map[
                         backward_input_name
                     ][0]
@@ -1123,6 +1138,12 @@ class DygraphFunctionGeneratorBase(FunctionGeneratorBase):
                     ]
 
                 elif backward_input_name in forward_outputs_position_map:
+                    self.use_no_forward = False
+                    self.use_forward_output = True
+                    self.use_forward_input_or_output = True
+                    if self.use_forward_input:
+                        self.use_forward_input_and_output = True
+
                     tensor_wrapper_type = forward_outputs_position_map[
                         backward_input_name
                     ][0]
@@ -1490,7 +1511,7 @@ class DygraphForwardFunctionGenerator(DygraphFunctionGeneratorBase):
             forward_apis_dict,
             namespace,
         )
-
+        self.use_no_forward = False
         # Generated Results
         self.forward_definition_str = ""
         self.forward_declaration_str = ""
@@ -2220,7 +2241,8 @@ class DygraphForwardFunctionGenerator(DygraphFunctionGeneratorBase):
 
     def run(self):
         super().run()
-
+        if not self.use_forward_input and not self.use_forward_output:
+            self.use_no_forward = True
         ###################
         # Code Generation #
         ###################
@@ -3106,6 +3128,13 @@ class DygraphForwardAndNodesGenerator(GeneratorBase):
         self.node_declaration_str = ""
         self.node_definition_str = ""
 
+        self.use_forward_input_list = set()
+        self.use_forward_output_list = set()
+        self.use_forward_input_and_output_list = set()
+
+        self.use_no_forward_list = set()
+        self.use_no_forward_output_list = set()
+
     def CollectIsForwardOnly(self, forward_api_contents):
         self.is_forward_only = (
             False if 'backward' in forward_api_contents else True
@@ -3162,6 +3191,21 @@ class DygraphForwardAndNodesGenerator(GeneratorBase):
                 namespace,
             )
             function_generator.run()
+            if not function_generator.no_backward:
+                if function_generator.use_forward_input:
+                    self.use_forward_input_list.add(forward_api_contents['op'])
+                if function_generator.use_forward_output:
+                    self.use_forward_output_list.add(forward_api_contents['op'])
+                else:
+                    self.use_no_forward_output_list.add(
+                        forward_api_contents['op']
+                    )
+                if function_generator.use_forward_input_and_output:
+                    self.use_forward_input_and_output_list.add(
+                        forward_api_contents['op']
+                    )
+                if function_generator.use_no_forward:
+                    self.use_no_forward_list.add(forward_api_contents['op'])
 
             self.forward_definition_str += (
                 function_generator.forward_definition_str + "\n"
@@ -3285,6 +3329,11 @@ if __name__ == "__main__":
     forward_declaration_str = ""
     forward_definition_str = ""
 
+    use_forward_input_set = []
+    use_forward_output_set = []
+    use_forward_input_and_output_set = []
+    use_no_forward_set = []
+
     # merge dygraph_ops.yaml and ops.yaml, dygraph_backward.yaml and backward.yaml
     all_ops = []
     all_bw = []
@@ -3322,6 +3371,27 @@ if __name__ == "__main__":
                 api_yaml_path, backward_yaml_path
             )
         generator.run()
+        use_forward_input_set = generator.use_forward_input_list
+        use_forward_output_set = generator.use_forward_output_list
+        use_no_forward_output_set = generator.use_no_forward_output_list
+        use_forward_input_and_output_set = (
+            generator.use_forward_input_and_output_list
+        )
+        use_no_forward_set = generator.use_no_forward_list
+
+        print(
+            "total size = ",
+            len(use_forward_output_set) + len(use_no_forward_output_set),
+        )
+        print("use_no_forward_set.size = ", len(use_no_forward_set))
+        print(
+            "use_forward_input_and_output_set.size = ",
+            len(use_forward_input_and_output_set),
+        )
+        print("use_forward_input_set = ", len(use_forward_input_set))
+        print("use_forward_output_set = ", len(use_forward_output_set))
+        print("use_no_forward_output_set = ", len(use_no_forward_output_set))
+        print("use_no_forward_set = ", use_no_forward_set)
 
         node_declaration_str += generator.node_declaration_str + "\n"
         node_definition_str += generator.node_definition_str + "\n"

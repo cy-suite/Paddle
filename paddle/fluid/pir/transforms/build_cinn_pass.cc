@@ -19,6 +19,7 @@
 #include "paddle/cinn/utils/string.h"
 #include "paddle/fluid/pir/transforms/sub_graph_detector.h"
 #include "paddle/pir/include/core/builtin_op.h"
+#include "paddle/pir/include/dialect/shape/utils/shape_analysis.h"
 #include "paddle/pir/include/pass/pass.h"
 #include "paddle/pir/include/pass/pass_registry.h"
 
@@ -60,7 +61,24 @@ class BuildCinnPass : public pir::Pass {
         continue;
       }
       VLOG(4) << "current group_ops.size(): " << group_ops.size();
+      std::cout << "prog ptr " << block->parent_program() << std::endl;
+      if (group_ops.size() == 51) {
+        auto& shape_analysis =
+            pir::ShapeAnalysisManager::Instance().Get(block->parent_program());
+        std::cout << "Program before replace: \n"
+                  << pir::CustomPrintHelper(*(block->parent_program()),
+                                            shape_analysis.PrintHook())
+                  << std::endl;
+      }
       ::pir::ReplaceWithGroupOp(block, group_ops);
+      if (group_ops.size() == 51) {
+        auto& shape_analysis =
+            pir::ShapeAnalysisManager::Instance().Get(block->parent_program());
+        std::cout << "Program after replace: \n"
+                  << pir::CustomPrintHelper(*(block->parent_program()),
+                                            shape_analysis.PrintHook())
+                  << std::endl;
+      }
     }
     auto end_t = std::chrono::high_resolution_clock::now();
     auto duration =
