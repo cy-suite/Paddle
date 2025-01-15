@@ -893,10 +893,10 @@ class OpcodeExecutorBase:
             self.stack.push(NullVariable())
 
     def load_method(self, method_name):
+        obj = self.stack.pop()
         method_name_var = ConstantVariable.wrap_literal(
             method_name, self._graph
         )
-        obj = self.stack.pop()
 
         method = BuiltinVariable(
             getattr, graph=self._graph, tracker=DanglingTracker()
