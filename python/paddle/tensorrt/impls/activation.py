@@ -263,6 +263,16 @@ def thresholded_relu_converter(network, paddle_op, inputs):
     return thresholded_relu_layer.get_output(0)
 
 
+@converter_registry.register("pd_op.leaky_relu", trt_version="8.x")
+@converter_registry.register("pd_op.leaky_relu_", trt_version="8.x")
+def leaky_relu_converter(network, paddle_op, inputs):
+    x = inputs[0]
+    negative_slope = paddle_op.attrs()["negative_slope"]
+    leaky_relu_layer = network.add_activation(x, trt.ActivationType.LEAKY_RELU)
+    leaky_relu_layer.alpha = negative_slope
+    return leaky_relu_layer.get_output(0)
+
+
 @converter_registry.register("pd_op.selu", trt_version="8.x")
 def selu_converter(network, paddle_op, inputs):
     x = inputs[0]
