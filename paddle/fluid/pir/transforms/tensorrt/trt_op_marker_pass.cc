@@ -1655,6 +1655,55 @@ class GridSampleOpPattern
   }
 };
 
+class EinsumOpPattern
+    : public pir::OpRewritePattern<paddle::dialect::EinsumOp> {
+ public:
+  using pir::OpRewritePattern<paddle::dialect::EinsumOp>::OpRewritePattern;
+  bool MatchAndRewrite(paddle::dialect::EinsumOp op,
+                       pir::PatternRewriter &rewriter) const override {
+    if (op->HasAttribute(kCanRunTrtAttr) &&
+        op.attribute<pir::BoolAttribute>(kCanRunTrtAttr).data()) {
+      return false;
+    }
+#if !IS_TRT_VERSION_GE(8200)
+    VLOG(3) << "einsum is not supported when TensorRT < 8.2";
+    return false;
+#else
+    auto equation = op->attribute<pir::StrAttribute>("equation").data();
+    if (equation.empty()) {
+      VLOG(3) << "Einsum equation is empty";
+      return false;
+    }
+
+    auto operands = op->operands();
+    if (operands.size() > 2) {
+      VLOG(3) << "TensorRT currently supports up to 2 input tensors"
+              << "to einsum but operation had" << operands.size()
+              << "input tensors !";
+      return false;
+    }
+
+    // auto x = operands[0];
+    // auto y = operands[1];
+    // auto x_shape = pir::GetShapeFromValue(x);
+    // auto y_shape = pir::GetShapeFromValue(y);
+    // if (x_shape.size() != 2 || y_shape.size() != 2) {
+    //   VLOG(3) << "Einsum op only support 2D tensor";
+    //   return false;
+    // }
+
+    auto equation = op->attribute<pir::StrAttribute>("equation").AsString();
+    if (equation.find("...") != std::string::npos) {
+      VLOG(3) << "TensorRT currently does not support ellipses !";
+      return false;
+    }
+
+    op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
+    return true;
+#endif
+  }
+};
+
 class StackOpPattern : public pir::OpRewritePattern<paddle::dialect::StackOp> {
  public:
   using pir::OpRewritePattern<paddle::dialect::StackOp>::OpRewritePattern;
@@ -2412,6 +2461,7 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ps.Add(std::make_unique<TemporalShiftOpPattern>(context));
     ps.Add(std::make_unique<InstanceNormOpPattern>(context));
     ps.Add(std::make_unique<AffineChannelOpPattern>(context));
+    ps.Add(std::make_unique<EinsumOpPattern>(context));
     return ps;
   }
 };
